@@ -172,7 +172,7 @@ export function runModel(
   county: string,
   hazard: HazardId,
   p: ParameterValues,
-  scope?: { subCounty?: string; ward?: string },
+  scope?: { subCounty?: string | undefined; ward?: string | undefined },
 ): WardResult[] {
   return wardsOf(county)
     .filter((w) => (scope?.subCounty ? w.subCounty === scope.subCounty : true))

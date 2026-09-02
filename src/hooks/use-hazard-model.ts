@@ -13,7 +13,7 @@ export type RunStatus = "idle" | "running" | "done";
 
 export function useHazardModel() {
   const [query, setQuery] = useState("");
-  const [county, setCounty] = useState(COUNTIES[0].name);
+  const [county, setCounty] = useState(COUNTIES[0]!.name);
   const [subCounty, setSubCounty] = useState<string>("all");
   const [ward, setWard] = useState<string>("all");
   const [hazard, setHazard] = useState<HazardId>("flood");
@@ -24,7 +24,7 @@ export function useHazardModel() {
   const [lastRun, setLastRun] = useState<Date | null>(null);
 
   const countyData = useMemo(
-    () => COUNTIES.find((c) => c.name === county) ?? COUNTIES[0],
+    () => COUNTIES.find((c) => c.name === county) ?? COUNTIES[0]!,
     [county],
   );
 
