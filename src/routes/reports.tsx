@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
@@ -17,8 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -30,13 +29,11 @@ import {
 import { useHazardModel } from "@/hooks/use-hazard-model";
 import {
   COUNTIES,
-  DEFAULT_PARAMETERS,
   HAZARDS,
   PARAMETERS,
   RISK_CLASSES,
   runModel,
   type HazardId,
-  type ParameterValues,
 } from "@/lib/hazard-model";
 import {
   CSV_COLUMNS,
@@ -105,22 +102,27 @@ function Reports() {
   const [requests, setRequests] = useState<RequestRecord[]>([]);
   const nextKey = useRef(0);
 
-  const parameters: ParameterValues = useMemo(
-    () => (model.useDefaults ? DEFAULT_PARAMETERS : model.parameters),
-    [model.useDefaults, model.parameters],
-  );
-
   // runModel is pure and synchronous, so the preview is derived state, not
   // something the user has to trigger. That is what makes this page
   // self-sufficient: there is no Run button to forget and no empty state that
   // needs a trip to the dashboard to escape.
   const results = useMemo(
     () =>
-      runModel(model.county, model.hazard, parameters, {
-        subCounty: model.subCounty === "all" ? undefined : model.subCounty,
-        ward: model.ward === "all" ? undefined : model.ward,
-      }),
-    [model.county, model.hazard, model.subCounty, model.ward, parameters],
+      model.canRun
+        ? runModel(model.county, model.hazard, model.parameters, model.activeCriteria, {
+            subCounty: model.subCounty === "all" ? undefined : model.subCounty,
+            ward: model.ward === "all" ? undefined : model.ward,
+          })
+        : [],
+    [
+      model.canRun,
+      model.county,
+      model.hazard,
+      model.subCounty,
+      model.ward,
+      model.parameters,
+      model.activeCriteria,
+    ],
   );
   const summary = useMemo(() => summarise(results), [results]);
 
@@ -146,8 +148,9 @@ function Reports() {
       subCounty: model.subCounty,
       ward: model.ward,
       hazard: model.hazard,
-      parameters,
-      usedDefaults: model.useDefaults,
+      parameters: model.parameters,
+      selected: model.activeCriteria,
+      usedDefaults: model.usesDefaults,
       generatedAt: new Date(),
     };
     const file = renderReport(results, scope, format);
@@ -295,95 +298,86 @@ function Reports() {
               </fieldset>
 
               <fieldset className="border-t border-border pt-4">
-                <legend className="text-xs text-muted-foreground">Parameters</legend>
-                <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
-                  <Label htmlFor="use-defaults" className="cursor-pointer text-sm">
-                    Use system defaults
-                  </Label>
-                  <Switch
-                    id="use-defaults"
-                    checked={model.useDefaults}
-                    onCheckedChange={model.toggleDefaults}
-                  />
-                </div>
+                <legend className="text-xs text-muted-foreground">Criteria</legend>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Choose what the run accounts for. Nothing is included until you select it.
+                </p>
 
-                {model.useDefaults ? (
-                  // Read the values off `parameters`, not PARAMETERS[].default,
-                  // so what is shown is exactly what goes into the file.
-                  <ul className="mt-3 grid grid-cols-2 gap-2">
-                    {PARAMETERS.map((p) => (
-                      <li key={p.id} className="rounded-md bg-muted/60 px-2.5 py-2">
-                        <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                          {p.label}
-                        </span>
-                        <span className="text-sm font-medium tabular-nums">
-                          {parameters[p.id]}
-                          {p.unit}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="mt-3 space-y-5">
-                    {PARAMETERS.map((p) => (
-                      // role="group": our Slider wrapper cannot forward a label
-                      // to the Radix thumb, so the named group is what a screen
-                      // reader announces when focus lands on it. The number
-                      // input carries the same value with a real label.
-                      <div key={p.id} role="group" aria-labelledby={`param-${p.id}-label`}>
-                        <div className="flex items-center justify-between gap-2">
+                <div className="mt-3 space-y-2">
+                  {PARAMETERS.map((p) => {
+                    const on = model.selected.includes(p.id);
+                    const applies = model.applicable.includes(p.id);
+                    return (
+                      <div
+                        key={p.id}
+                        className={`rounded-md border px-3 py-2.5 ${
+                          on ? "border-border bg-muted/40" : "border-border/60"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Checkbox
+                            id={`criterion-${p.id}`}
+                            checked={on}
+                            onCheckedChange={() => model.toggleParameter(p.id)}
+                          />
                           <Label
-                            id={`param-${p.id}-label`}
-                            htmlFor={`param-${p.id}`}
-                            className="text-sm"
+                            htmlFor={`criterion-${p.id}`}
+                            className="flex-1 cursor-pointer text-sm"
                           >
                             {p.label}
                           </Label>
-                          <div className="flex items-center gap-1">
-                            <Input
-                              id={`param-${p.id}`}
-                              type="number"
-                              value={model.parameters[p.id]}
-                              min={p.min}
-                              max={p.max}
-                              step={p.step}
-                              onChange={(e) =>
-                                model.setParameter(
-                                  p.id,
-                                  Math.max(p.min, Math.min(p.max, Number(e.target.value))),
-                                )
-                              }
-                              className="h-8 w-20 text-right tabular-nums"
-                            />
-                            <span className="w-5 text-xs text-muted-foreground">{p.unit}</span>
-                          </div>
+                          {on && (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                id={`param-${p.id}`}
+                                type="number"
+                                value={model.parameters[p.id]}
+                                min={p.min}
+                                max={p.max}
+                                step={p.step}
+                                aria-label={`${p.label} value in ${p.unit}`}
+                                onChange={(e) => {
+                                  const n = Number(e.target.value);
+                                  if (Number.isNaN(n)) return;
+                                  model.setParameter(p.id, Math.max(p.min, Math.min(p.max, n)));
+                                }}
+                                className="h-8 w-20 text-right tabular-nums"
+                              />
+                              <span className="w-5 text-xs text-muted-foreground">{p.unit}</span>
+                            </div>
+                          )}
                         </div>
-                        <Slider
-                          className="mt-2.5"
-                          value={[model.parameters[p.id]]}
-                          min={p.min}
-                          max={p.max}
-                          step={p.step}
-                          onValueChange={([v]) => model.setParameter(p.id, v ?? p.default)}
-                        />
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          {p.min}–{p.max}
-                          {p.unit} · default {p.default}
-                          {p.unit}
-                        </p>
+                        {on && (
+                          <p className="mt-1.5 pl-[26px] text-[11px] text-muted-foreground">
+                            {applies ? (
+                              <>
+                                {p.min}–{p.max}
+                                {p.unit} · default {p.default}
+                                {p.unit}
+                              </>
+                            ) : (
+                              <>
+                                Not used for {hazardLabel.toLowerCase()}; excluded from this file.
+                              </>
+                            )}
+                          </p>
+                        )}
                       </div>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={model.resetParameters}
-                      className="text-accent hover:bg-accent/10 hover:text-accent"
-                    >
-                      <RotateCcw className="size-3.5" />
-                      Reset to defaults
-                    </Button>
-                  </div>
+                    );
+                  })}
+                </div>
+
+                {model.selected.length > 0 && !model.usesDefaults && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={model.resetParameters}
+                    className="mt-3 text-accent hover:bg-accent/10 hover:text-accent"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    Use system defaults
+                  </Button>
                 )}
               </fieldset>
             </div>
@@ -414,15 +408,12 @@ function Reports() {
                 </p>
               </header>
 
-              <dl className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4">
+              {/* Mean / peak / high-risk-area metrics are deliberately absent:
+                  out of agreed scope for this phase. The class distribution below
+                  is the legend breakdown, not a derived index. */}
+              <dl className="grid grid-cols-2 gap-px bg-border">
                 <Stat label="Rows in file" value={String(rows)} />
                 <Stat label="Sub-counties" value={String(subCountiesCovered)} />
-                <Stat label="Average score" value={String(summary.averageScore)} />
-                <Stat
-                  label="Peak score"
-                  value={String(summary.highestScore)}
-                  sub={summary.highestWard}
-                />
               </dl>
 
               <div className="border-t border-border p-4">
@@ -530,7 +521,7 @@ function Reports() {
                   {rows === 0
                     ? "Nothing to download yet — widen the scope above."
                     : `${countLabel(rows, "ward")} · ${hazardLabel} · ${
-                        model.useDefaults ? "system default parameters" : "custom parameters"
+                        model.usesDefaults ? "system default values" : "custom values"
                       }`}
                 </p>
               </div>

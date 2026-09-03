@@ -35,18 +35,13 @@ describe("no route ships the scaffold placeholder", () => {
 describe("/ is wired to the hazard console", () => {
   const src = read("index.tsx");
 
-  it.each([
-    "AppHeader",
-    "ControlSidebar",
-    "MapFrame",
-    "MapLegend",
-    "ResultSummary",
-    "SiteFooter",
-    "WardTable",
-  ])("mounts %s", (component) => {
-    expect(src).toContain(`components/hazard/${component}`);
-    expect(src).toMatch(new RegExp(`<${component}[\\s/>]`));
-  });
+  it.each(["AppHeader", "ControlSidebar", "MapFrame", "MapLegend", "SiteFooter", "WardTable"])(
+    "mounts %s",
+    (component) => {
+      expect(src).toContain(`components/hazard/${component}`);
+      expect(src).toMatch(new RegExp(`<${component}[\\s/>]`));
+    },
+  );
 
   it("drives them from the shared hook rather than local state", () => {
     expect(src).toContain("useHazardModel");
@@ -56,6 +51,12 @@ describe("/ is wired to the hazard console", () => {
   it("renders the component the route declares", () => {
     expect(src).toMatch(/createFileRoute\("\/"\)\(\{/);
     expect(src).toMatch(/component:\s*Index/);
+  });
+
+  it("no longer mounts the mean/peak/high-risk summary cards", () => {
+    // Out of agreed scope for this phase. Pinned so reinstating them is a
+    // deliberate act rather than a merge bringing them back unnoticed.
+    expect(src).not.toContain("ResultSummary");
   });
 
   it("offers the controls on small screens too, not only in the lg rail", () => {
@@ -114,6 +115,21 @@ describe("/reports is a real page", () => {
   it("shows the request time in UTC, matching the filename stamp", () => {
     expect(src).toContain("Requested (UTC)");
     expect(src).not.toMatch(/generatedAt\.toLocaleTimeString\(\)\}/);
+  });
+
+  it("drops the mean and peak stat tiles", () => {
+    expect(src).not.toMatch(/label="Average score"/);
+    expect(src).not.toMatch(/label="Peak score"/);
+    expect(src).not.toContain("summary.averageScore");
+    expect(src).not.toContain("summary.highestScore");
+  });
+
+  it("picks criteria with checkboxes and numeric fields, with no slider or defaults switch", () => {
+    expect(src).toContain("toggleParameter");
+    expect(src).toContain('type="number"');
+    expect(src).not.toContain("Slider");
+    expect(src).not.toContain("Switch");
+    expect(src).not.toContain("useDefaults");
   });
 });
 

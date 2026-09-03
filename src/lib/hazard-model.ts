@@ -141,24 +141,118 @@ export const DEFAULT_PARAMETERS: ParameterValues = {
 const norm = (v: number, min: number, max: number) =>
   Math.max(0, Math.min(1, (v - min) / (max - min)));
 
-/**
- * Illustrative demo scoring. Weighted blend of the four parameters against each
- * ward's terrain traits. Swap this out for real hazard modelling later.
- */
-export function scoreWard(ward: Ward, hazard: HazardId, p: ParameterValues): number {
-  const g = norm(p.gradient, 0, 60);
-  const r = norm(p.rainfall, 0, 400);
-  const t = norm(p.temperature, 5, 45);
-  const h = norm(p.humidity, 0, 100);
+/** A criterion's contribution to one hazard. `invert` means low input = high risk. */
+export interface HazardTerm {
+  parameter: ParameterId;
+  weight: number;
+  invert: boolean;
+}
 
-  let s: number;
-  if (hazard === "flood") {
-    s = 0.42 * r + 0.22 * (1 - ward.drainage) + 0.18 * h + 0.18 * (1 - g);
-  } else if (hazard === "drought") {
-    s = 0.38 * (1 - r) + 0.24 * t + 0.2 * ward.aridity + 0.18 * (1 - h);
-  } else {
-    s = 0.4 * g + 0.26 * ward.slope + 0.2 * r + 0.14 * h;
+/** The ward's intrinsic terrain contribution. Always counted: it is not a user criterion. */
+export interface TraitTerm {
+  of: "slope" | "drainage" | "aridity";
+  weight: number;
+  invert: boolean;
+}
+
+export interface HazardModelDef {
+  id: HazardId;
+  trait: TraitTerm;
+  terms: HazardTerm[];
+}
+
+/**
+ * The scoring weights, as data rather than branches, so that dropping a
+ * criterion is a filter plus a renormalisation instead of a new code path.
+ *
+ * Note that no hazard uses all four parameters: temperature is a drought term
+ * only, and gradient does not enter drought. `applicableParameters` exposes
+ * that so the UI can say so rather than silently ignoring a selection.
+ *
+ * Each definition's weights sum to 1, which the unit tests assert.
+ */
+export const HAZARD_MODELS: HazardModelDef[] = [
+  {
+    id: "flood",
+    trait: { of: "drainage", weight: 0.22, invert: true },
+    terms: [
+      { parameter: "rainfall", weight: 0.42, invert: false },
+      { parameter: "humidity", weight: 0.18, invert: false },
+      { parameter: "gradient", weight: 0.18, invert: true },
+    ],
+  },
+  {
+    id: "drought",
+    trait: { of: "aridity", weight: 0.2, invert: false },
+    terms: [
+      { parameter: "rainfall", weight: 0.38, invert: true },
+      { parameter: "temperature", weight: 0.24, invert: false },
+      { parameter: "humidity", weight: 0.18, invert: true },
+    ],
+  },
+  {
+    id: "landslide",
+    trait: { of: "slope", weight: 0.26, invert: false },
+    terms: [
+      { parameter: "gradient", weight: 0.4, invert: false },
+      { parameter: "rainfall", weight: 0.2, invert: false },
+      { parameter: "humidity", weight: 0.14, invert: false },
+    ],
+  },
+];
+
+export function hazardModel(hazard: HazardId): HazardModelDef {
+  const m = HAZARD_MODELS.find((x) => x.id === hazard);
+  if (!m) throw new Error(`unknown hazard: ${hazard}`);
+  return m;
+}
+
+/** Which criteria actually affect this hazard. The UI uses this to flag no-ops. */
+export function applicableParameters(hazard: HazardId): ParameterId[] {
+  return hazardModel(hazard).terms.map((t) => t.parameter);
+}
+
+/** Normalise a raw parameter value to 0..1 against its declared min/max. */
+function normalised(id: ParameterId, p: ParameterValues): number {
+  const def = PARAMETERS.find((d) => d.id === id)!;
+  return norm(p[id], def.min, def.max);
+}
+
+/**
+ * Illustrative demo scoring. Weighted blend of the SELECTED criteria against the
+ * ward's terrain trait.
+ *
+ * `selected` is the set of criteria the user chose to include. Criteria outside
+ * it are dropped and the surviving weights are renormalised, so the score stays
+ * on 0..100 and stays comparable across different selections instead of
+ * collapsing toward zero as criteria are removed.
+ *
+ * With every applicable criterion selected the renormalisation is a no-op, so
+ * this reproduces the original weights exactly.
+ */
+export function scoreWard(
+  ward: Ward,
+  hazard: HazardId,
+  p: ParameterValues,
+  selected: Iterable<ParameterId>,
+): number {
+  const model = hazardModel(hazard);
+  const chosen = new Set(selected);
+  const terms = model.terms.filter((t) => chosen.has(t.parameter));
+
+  const traitValue = ward[model.trait.of];
+  let weighted = model.trait.weight * (model.trait.invert ? 1 - traitValue : traitValue);
+  let total = model.trait.weight;
+
+  for (const t of terms) {
+    const v = normalised(t.parameter, p);
+    weighted += t.weight * (t.invert ? 1 - v : v);
+    total += t.weight;
   }
+
+  // total is never 0: the trait term is unconditional, so an empty or wholly
+  // inapplicable selection degrades to a terrain-only score rather than NaN.
+  const s = weighted / total;
   const jitter = (seeded(ward.id + hazard, 7) - 0.5) * 0.12;
   return Math.round(Math.max(2, Math.min(99, (s + jitter) * 100)));
 }
@@ -172,13 +266,15 @@ export function runModel(
   county: string,
   hazard: HazardId,
   p: ParameterValues,
+  selected: Iterable<ParameterId>,
   scope?: { subCounty?: string | undefined; ward?: string | undefined },
 ): WardResult[] {
+  const chosen = [...selected];
   return wardsOf(county)
     .filter((w) => (scope?.subCounty ? w.subCounty === scope.subCounty : true))
     .filter((w) => (scope?.ward ? w.name === scope.ward : true))
     .map((w) => {
-      const score = scoreWard(w, hazard, p);
+      const score = scoreWard(w, hazard, p, chosen);
       return { ...w, score, risk: riskClassFor(score) };
     });
 }

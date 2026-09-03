@@ -2,7 +2,9 @@ import {
   HAZARDS,
   PARAMETERS,
   RISK_CLASSES,
+  applicableParameters,
   type HazardId,
+  type ParameterId,
   type ParameterValues,
   type WardResult,
 } from "./hazard-model";
@@ -15,39 +17,44 @@ export interface ReportScope {
   ward: string;
   hazard: HazardId;
   parameters: ParameterValues;
+  /**
+   * The criteria the run actually accounted for. Load-bearing for the export:
+   * `parameters` always carries all four fields, so without this the file would
+   * report a temperature that took no part in a flood score. Values for criteria
+   * outside this list are written blank.
+   */
+  selected: ParameterId[];
+  /** True when every selected criterion still sits at its declared default. */
   usedDefaults: boolean;
   generatedAt: Date;
 }
 
+/** Selected AND applicable to the hazard — the criteria that moved the score. */
+export function effectiveCriteria(scope: ReportScope): ParameterId[] {
+  const applies = applicableParameters(scope.hazard);
+  return scope.selected.filter((id) => applies.includes(id));
+}
+
 export interface ReportSummary {
   wards: number;
-  averageScore: number;
-  highestScore: number;
-  highestWard: string;
   /** count per risk class, keyed by RISK_CLASSES id, in ramp order */
   byClass: { id: string; label: string; count: number }[];
 }
+
+/*
+ * Mean index, peak index and high-risk-area count are intentionally NOT derived
+ * here. They were dropped as out of agreed scope for this phase; the per-ward
+ * scores are still exported, so any of them can be recomputed downstream, and
+ * reinstating them is a small addition rather than a data migration.
+ */
 
 /**
  * Whole-of-report statistics. Pure so the same numbers appear in the on-screen
  * summary, the CSV footer and the JSON payload — one implementation, no drift.
  */
 export function summarise(results: WardResult[]): ReportSummary {
-  if (results.length === 0) {
-    return {
-      wards: 0,
-      averageScore: 0,
-      highestScore: 0,
-      highestWard: "",
-      byClass: RISK_CLASSES.map((rc) => ({ id: rc.id, label: rc.label, count: 0 })),
-    };
-  }
-  const top = results.reduce((a, b) => (b.score > a.score ? b : a));
   return {
     wards: results.length,
-    averageScore: Math.round(results.reduce((s, r) => s + r.score, 0) / results.length),
-    highestScore: top.score,
-    highestWard: top.name,
     byClass: RISK_CLASSES.map((rc) => ({
       id: rc.id,
       label: rc.label,
@@ -69,6 +76,10 @@ export const CSV_COLUMNS = [
   "hazard",
   "risk_score",
   "risk_class",
+  // Explicit rather than inferred from which value columns are populated: a
+  // blank could otherwise be read as a missing reading rather than an excluded
+  // criterion, and the two mean very different things to whoever loads this.
+  "criteria_used",
   "gradient_pct",
   "rainfall_mm",
   "temperature_c",
@@ -76,9 +87,23 @@ export const CSV_COLUMNS = [
   "generated_at",
 ] as const;
 
+/** Parameter id -> its CSV column, so the two can never fall out of step. */
+const PARAMETER_COLUMN: Record<ParameterId, string> = {
+  gradient: "gradient_pct",
+  rainfall: "rainfall_mm",
+  temperature: "temperature_c",
+  humidity: "humidity_pct",
+};
+
 export function toCsv(results: WardResult[], scope: ReportScope): string {
   const p = scope.parameters;
   const stamp = scope.generatedAt.toISOString();
+  const used = effectiveCriteria(scope);
+  // Semicolons, not commas: a comma here would need the field quoting, and this
+  // column is read by eye as often as by a parser.
+  const usedList = used.join(";");
+  const valueOf = (id: ParameterId) => (used.includes(id) ? p[id] : "");
+
   const lines = [CSV_COLUMNS.join(",")];
   for (const r of results) {
     lines.push(
@@ -89,10 +114,11 @@ export function toCsv(results: WardResult[], scope: ReportScope): string {
         scope.hazard,
         r.score,
         r.risk.label,
-        p.gradient,
-        p.rainfall,
-        p.temperature,
-        p.humidity,
+        usedList,
+        valueOf("gradient"),
+        valueOf("rainfall"),
+        valueOf("temperature"),
+        valueOf("humidity"),
         stamp,
       ]
         .map(csvField)
@@ -106,6 +132,7 @@ export function toCsv(results: WardResult[], scope: ReportScope): string {
 
 export function toJson(results: WardResult[], scope: ReportScope): string {
   const hazardLabel = HAZARDS.find((h) => h.id === scope.hazard)?.label ?? scope.hazard;
+  const used = effectiveCriteria(scope);
   return JSON.stringify(
     {
       report: "sentinel-watch-hazard-assessment",
@@ -119,9 +146,18 @@ export function toJson(results: WardResult[], scope: ReportScope): string {
         hazardLabel,
       },
       parameters: {
-        values: scope.parameters,
+        // Only the criteria that took part, so a consumer cannot mistake an
+        // excluded criterion's carried-over value for an input to the score.
+        selected: used,
+        ignored: scope.selected.filter((id) => !used.includes(id)),
+        values: Object.fromEntries(used.map((id) => [id, scope.parameters[id]])),
         usedSystemDefaults: scope.usedDefaults,
-        definitions: PARAMETERS.map((d) => ({ id: d.id, label: d.label, unit: d.unit })),
+        definitions: PARAMETERS.filter((d) => used.includes(d.id)).map((d) => ({
+          id: d.id,
+          label: d.label,
+          unit: d.unit,
+          column: PARAMETER_COLUMN[d.id],
+        })),
       },
       summary: summarise(results),
       wards: results.map((r) => ({

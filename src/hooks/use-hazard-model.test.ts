@@ -1,7 +1,14 @@
 import { act } from "react";
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COUNTIES, DEFAULT_PARAMETERS, runModel } from "@/lib/hazard-model";
+import {
+  COUNTIES,
+  DEFAULT_PARAMETERS,
+  PARAMETERS,
+  applicableParameters,
+  runModel,
+  type ParameterId,
+} from "@/lib/hazard-model";
 import { useHazardModel } from "./use-hazard-model";
 
 // run() defers by 900ms to show the "Calculating…" state; fake timers make that
@@ -10,19 +17,32 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 const settle = () => act(() => void vi.advanceTimersByTime(1000));
+const ALL: ParameterId[] = PARAMETERS.map((d) => d.id);
 
-describe("useHazardModel initial state", () => {
-  it("starts on the first county, flood, defaults, idle and empty", () => {
+describe("initial state", () => {
+  it("selects no criteria, so nothing is in the model until the analyst asks", () => {
+    const { result } = renderHook(() => useHazardModel());
+    expect(result.current.selected).toEqual([]);
+    expect(result.current.activeCriteria).toEqual([]);
+    expect(result.current.canRun).toBe(false);
+  });
+
+  it("starts on the first county, flood, idle and empty", () => {
     const { result } = renderHook(() => useHazardModel());
     expect(result.current.county).toBe(COUNTIES[0]!.name);
     expect(result.current.subCounty).toBe("all");
     expect(result.current.ward).toBe("all");
     expect(result.current.hazard).toBe("flood");
-    expect(result.current.useDefaults).toBe(true);
-    expect(result.current.parameters).toEqual(DEFAULT_PARAMETERS);
     expect(result.current.status).toBe("idle");
     expect(result.current.results).toEqual([]);
     expect(result.current.lastRun).toBeNull();
+  });
+
+  it("holds the default values ready, even though none are selected yet", () => {
+    // Values exist from the start so selecting a criterion adopts a sensible
+    // figure rather than an empty field.
+    const { result } = renderHook(() => useHazardModel());
+    expect(result.current.parameters).toEqual(DEFAULT_PARAMETERS);
   });
 
   it("lists every sub-county and every ward of the starting county", () => {
@@ -33,10 +53,146 @@ describe("useHazardModel initial state", () => {
   });
 });
 
+describe("criterion selection", () => {
+  it("adds and removes a criterion", () => {
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("rainfall"));
+    expect(result.current.selected).toEqual(["rainfall"]);
+    expect(result.current.canRun).toBe(true);
+
+    act(() => result.current.toggleParameter("rainfall"));
+    expect(result.current.selected).toEqual([]);
+    expect(result.current.canRun).toBe(false);
+  });
+
+  it("keeps several criteria in selection order", () => {
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("humidity"));
+    act(() => result.current.toggleParameter("rainfall"));
+    expect(result.current.selected).toEqual(["humidity", "rainfall"]);
+  });
+
+  it("resets a criterion's value to its default when it is re-selected", () => {
+    // Guards against a criterion returning with a stale figure someone typed,
+    // deselected and forgot about.
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("rainfall"));
+    act(() => result.current.setParameter("rainfall", 390));
+    expect(result.current.parameters.rainfall).toBe(390);
+
+    act(() => result.current.toggleParameter("rainfall"));
+    act(() => result.current.toggleParameter("rainfall"));
+    expect(result.current.parameters.rainfall).toBe(DEFAULT_PARAMETERS.rainfall);
+  });
+
+  it("clears the whole selection and restores every default", () => {
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("rainfall"));
+    act(() => result.current.toggleParameter("humidity"));
+    act(() => result.current.setParameter("humidity", 15));
+
+    act(() => result.current.clearParameters());
+    expect(result.current.selected).toEqual([]);
+    expect(result.current.parameters).toEqual(DEFAULT_PARAMETERS);
+    expect(result.current.canRun).toBe(false);
+  });
+});
+
+describe("applicability", () => {
+  it("reports which criteria the chosen hazard uses", () => {
+    const { result } = renderHook(() => useHazardModel());
+    expect(result.current.applicable.sort()).toEqual(applicableParameters("flood").sort());
+
+    act(() => result.current.setHazard("drought"));
+    expect(result.current.applicable.sort()).toEqual(applicableParameters("drought").sort());
+  });
+
+  it("splits a selection into what counts and what is inert", () => {
+    // Temperature does not enter flood, so selecting it must not imply the run
+    // accounted for it.
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("temperature"));
+    act(() => result.current.toggleParameter("rainfall"));
+
+    expect(result.current.selected).toEqual(["temperature", "rainfall"]);
+    expect(result.current.activeCriteria).toEqual(["rainfall"]);
+    expect(result.current.ignoredCriteria).toEqual(["temperature"]);
+  });
+
+  it("refuses to run on a wholly inert selection", () => {
+    // Terrain-only output is not an analysis, so this must not be runnable.
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("temperature"));
+    expect(result.current.canRun).toBe(false);
+
+    act(() => result.current.run());
+    expect(result.current.status).toBe("idle");
+    settle();
+    expect(result.current.results).toEqual([]);
+  });
+
+  it("re-evaluates applicability when the hazard changes under a fixed selection", () => {
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("temperature"));
+    expect(result.current.canRun).toBe(false);
+
+    // Temperature is a drought term, so the same selection becomes live.
+    act(() => result.current.setHazard("drought"));
+    expect(result.current.activeCriteria).toEqual(["temperature"]);
+    expect(result.current.canRun).toBe(true);
+  });
+
+  it("turns gradient inert for drought and live again for landslide", () => {
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("gradient"));
+    act(() => result.current.setHazard("drought"));
+    expect(result.current.canRun).toBe(false);
+
+    act(() => result.current.setHazard("landslide"));
+    expect(result.current.canRun).toBe(true);
+  });
+});
+
+describe("values", () => {
+  it("changes only the named criterion", () => {
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("gradient"));
+    act(() => result.current.setParameter("gradient", 45));
+    expect(result.current.parameters).toEqual({ ...DEFAULT_PARAMETERS, gradient: 45 });
+  });
+
+  it("reports whether the selected values are still the system defaults", () => {
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("rainfall"));
+    expect(result.current.usesDefaults).toBe(true);
+
+    act(() => result.current.setParameter("rainfall", 300));
+    expect(result.current.usesDefaults).toBe(false);
+  });
+
+  it("ignores an edit to an unselected criterion when judging defaults", () => {
+    // Only what the run will use should decide whether it is a defaults run.
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("rainfall"));
+    act(() => result.current.setParameter("humidity", 5));
+    expect(result.current.selected).toEqual(["rainfall"]);
+    expect(result.current.usesDefaults).toBe(true);
+  });
+
+  it("restores every default with resetParameters but keeps the selection", () => {
+    const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.toggleParameter("rainfall"));
+    act(() => result.current.toggleParameter("humidity"));
+    act(() => result.current.setParameter("rainfall", 10));
+    act(() => result.current.resetParameters());
+    expect(result.current.parameters).toEqual(DEFAULT_PARAMETERS);
+    expect(result.current.selected).toEqual(["rainfall", "humidity"]);
+    expect(result.current.usesDefaults).toBe(true);
+  });
+});
+
 describe("scope selection", () => {
   it("resets sub-county and ward when the county changes", () => {
-    // The bug this guards: keeping a Nairobi ward selected after switching to
-    // Kisumu, which silently yields zero results on the next run.
     const { result } = renderHook(() => useHazardModel());
     act(() => result.current.selectSubCounty("Westlands"));
     act(() => result.current.setWard("Kitisuru"));
@@ -80,8 +236,6 @@ describe("search query", () => {
   });
 
   it("falls back to the full ward list when a query matches no ward", () => {
-    // Deliberate: an unmatched query must not leave the ward select empty and
-    // unusable, so the hook degrades to the unfiltered list.
     const { result } = renderHook(() => useHazardModel());
     act(() => result.current.selectCounty("Kisumu"));
     act(() => result.current.setQuery("zzzz"));
@@ -103,37 +257,15 @@ describe("search query", () => {
   });
 });
 
-describe("parameters", () => {
-  it("restores defaults when defaults are switched back on", () => {
-    const { result } = renderHook(() => useHazardModel());
-    act(() => result.current.toggleDefaults(false));
-    act(() => result.current.setParameter("rainfall", 350));
-    expect(result.current.parameters.rainfall).toBe(350);
-
-    act(() => result.current.toggleDefaults(true));
-    expect(result.current.parameters).toEqual(DEFAULT_PARAMETERS);
-  });
-
-  it("changes only the named parameter", () => {
-    const { result } = renderHook(() => useHazardModel());
-    act(() => result.current.toggleDefaults(false));
-    act(() => result.current.setParameter("gradient", 45));
-    expect(result.current.parameters).toEqual({ ...DEFAULT_PARAMETERS, gradient: 45 });
-  });
-
-  it("resets every parameter with resetParameters", () => {
-    const { result } = renderHook(() => useHazardModel());
-    act(() => result.current.toggleDefaults(false));
-    act(() => result.current.setParameter("humidity", 5));
-    act(() => result.current.setParameter("temperature", 40));
-    act(() => result.current.resetParameters());
-    expect(result.current.parameters).toEqual(DEFAULT_PARAMETERS);
-  });
-});
-
 describe("run", () => {
+  function withRainfall() {
+    const hook = renderHook(() => useHazardModel());
+    act(() => hook.result.current.toggleParameter("rainfall"));
+    return hook;
+  }
+
   it("goes running, then done with results and a timestamp", () => {
-    const { result } = renderHook(() => useHazardModel());
+    const { result } = withRainfall();
     act(() => result.current.run());
     expect(result.current.status).toBe("running");
     expect(result.current.results).toEqual([]);
@@ -144,49 +276,69 @@ describe("run", () => {
     expect(result.current.lastRun).toBeInstanceOf(Date);
   });
 
-  it("matches runModel for the selected scope", () => {
+  it("does nothing at all with no criteria selected", () => {
     const { result } = renderHook(() => useHazardModel());
+    act(() => result.current.run());
+    expect(result.current.status).toBe("idle");
+    settle();
+    expect(result.current.results).toEqual([]);
+    expect(result.current.lastRun).toBeNull();
+  });
+
+  it("scores with only the selected criteria", () => {
+    const { result } = withRainfall();
+    act(() => result.current.run());
+    settle();
+    expect(result.current.results).toEqual(
+      runModel(result.current.county, "flood", DEFAULT_PARAMETERS, ["rainfall"]),
+    );
+  });
+
+  it("differs from a full-criteria run, proving the selection reaches the model", () => {
+    const { result } = withRainfall();
+    act(() => result.current.run());
+    settle();
+    expect(result.current.results).not.toEqual(
+      runModel(result.current.county, "flood", DEFAULT_PARAMETERS, ALL),
+    );
+  });
+
+  it("drops the inert half of a mixed selection before scoring", () => {
+    const { result } = withRainfall();
+    act(() => result.current.toggleParameter("temperature"));
+    act(() => result.current.run());
+    settle();
+    // Temperature is not a flood term, so the run must equal rainfall alone.
+    expect(result.current.results).toEqual(
+      runModel(result.current.county, "flood", DEFAULT_PARAMETERS, ["rainfall"]),
+    );
+  });
+
+  it("matches runModel for the selected scope", () => {
+    const { result } = withRainfall();
     act(() => result.current.selectCounty("Kisumu"));
     act(() => result.current.selectSubCounty("Nyando"));
     act(() => result.current.run());
     settle();
     expect(result.current.results).toEqual(
-      runModel("Kisumu", "flood", DEFAULT_PARAMETERS, { subCounty: "Nyando" }),
+      runModel("Kisumu", "flood", DEFAULT_PARAMETERS, ["rainfall"], { subCounty: "Nyando" }),
     );
   });
 
-  it("scores with system defaults while the defaults switch is on, even after edits", () => {
-    // toggleDefaults(false) -> edit -> toggleDefaults(true) resets the values,
-    // but the run must use defaults regardless of what is held in state.
-    const { result } = renderHook(() => useHazardModel());
-    act(() => result.current.toggleDefaults(false));
+  it("uses the typed value, not the default", () => {
+    const { result } = withRainfall();
     act(() => result.current.setParameter("rainfall", 400));
-    act(() => result.current.toggleDefaults(true));
     act(() => result.current.run());
     settle();
     expect(result.current.results).toEqual(
-      runModel(result.current.county, "flood", DEFAULT_PARAMETERS),
-    );
-  });
-
-  it("uses the overridden parameters when defaults are off", () => {
-    const { result } = renderHook(() => useHazardModel());
-    act(() => result.current.toggleDefaults(false));
-    act(() => result.current.setParameter("rainfall", 400));
-    act(() => result.current.run());
-    settle();
-    const expected = runModel(result.current.county, "flood", {
-      ...DEFAULT_PARAMETERS,
-      rainfall: 400,
-    });
-    expect(result.current.results).toEqual(expected);
-    expect(result.current.results).not.toEqual(
-      runModel(result.current.county, "flood", DEFAULT_PARAMETERS),
+      runModel(result.current.county, "flood", { ...DEFAULT_PARAMETERS, rainfall: 400 }, [
+        "rainfall",
+      ]),
     );
   });
 
   it("re-runs against a changed hazard", () => {
-    const { result } = renderHook(() => useHazardModel());
+    const { result } = withRainfall();
     act(() => result.current.run());
     settle();
     const flood = result.current.results;
@@ -196,27 +348,26 @@ describe("run", () => {
     settle();
     expect(result.current.results).not.toEqual(flood);
     expect(result.current.results).toEqual(
-      runModel(result.current.county, "drought", DEFAULT_PARAMETERS),
+      runModel(result.current.county, "drought", DEFAULT_PARAMETERS, ["rainfall"]),
     );
   });
 
   it("keeps the previous results on screen until the new ones land", () => {
-    const { result } = renderHook(() => useHazardModel());
+    const { result } = withRainfall();
     act(() => result.current.run());
     settle();
     const first = result.current.results;
 
     act(() => result.current.setHazard("landslide"));
     act(() => result.current.run());
-    // mid-flight: status is running, but the map still has something to show
     expect(result.current.status).toBe("running");
     expect(result.current.results).toEqual(first);
     settle();
     expect(result.current.results).not.toEqual(first);
   });
 
-  it("returns no results when the scope selects a ward outside the county", () => {
-    const { result } = renderHook(() => useHazardModel());
+  it("scopes down to a single ward", () => {
+    const { result } = withRainfall();
     act(() => result.current.selectSubCounty("Westlands"));
     act(() => result.current.setWard("Kitisuru"));
     act(() => result.current.run());
