@@ -1,6 +1,14 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  KENYA_CENTER,
+  KENYA_ZOOM,
+  SCALE_MAX_WIDTH_PX,
+  TILE_URL,
+  countyBounds,
+  scaleBarMetres,
+} from "@/lib/geo";
 import {
   DEFAULT_PARAMETERS,
   HAZARDS,
@@ -16,6 +24,30 @@ import { MapLegend } from "./MapLegend";
 import { WardTable } from "./WardTable";
 
 const results = runModel("Kisumu", "flood", DEFAULT_PARAMETERS, applicableParameters("flood"));
+
+/**
+ * Leaflet needs real layout and a canvas jsdom does not provide. Mocking it
+ * keeps these tests about the wiring — which centre, which zoom, which tile URL,
+ * which attribution — and leaves the actual rendering to the browser smoke test.
+ */
+const mapInstance = {
+  remove: vi.fn(),
+  invalidateSize: vi.fn(),
+  flyTo: vi.fn(),
+  flyToBounds: vi.fn(),
+};
+type MapOptions = { center: [number, number]; zoom: number };
+type TileOptions = { attribution: string; maxZoom: number };
+type ScaleOptions = { metric: boolean; imperial: boolean; maxWidth: number };
+
+// Parameters are declared, not inferred: without them vi.fn's arg tuple is
+// empty and mock.calls[0][1] does not typecheck.
+const leaflet = {
+  map: vi.fn((_el: HTMLElement, _opts: MapOptions) => mapInstance),
+  tileLayer: vi.fn((_url: string, _opts: TileOptions) => ({ addTo: vi.fn() })),
+  control: { scale: vi.fn((_opts: ScaleOptions) => ({ addTo: vi.fn() })) },
+};
+vi.mock("leaflet", () => leaflet);
 
 /** Drives the real hook, so these exercise the wired component, not a stub. */
 function Sidebar() {
@@ -86,42 +118,166 @@ describe("MapLegend", () => {
 });
 
 describe("MapFrame", () => {
-  it("prompts for a run when idle with no results", () => {
-    render(<MapFrame county="Kisumu" results={[]} status="idle" />);
-    expect(screen.getByText("No results yet")).toBeTruthy();
-    expect(screen.getByText(/Awaiting model run/)).toBeTruthy();
+  beforeEach(() => {
+    leaflet.map.mockClear();
+    leaflet.tileLayer.mockClear();
+    leaflet.control.scale.mockClear();
+    mapInstance.flyTo.mockClear();
+    mapInstance.flyToBounds.mockClear();
+    mapInstance.remove.mockClear();
   });
 
-  it("names selecting criteria as a required step, not an optional tweak", () => {
-    render(<MapFrame county="Kisumu" results={[]} status="idle" />);
-    expect(screen.getByText(/select the criteria the run should account for/i)).toBeTruthy();
-    expect(screen.queryByText(/adjust parameters if needed/i)).toBeNull();
+  it("opens captioned Kenya, because that is what it is framing", async () => {
+    // The selected county is Kisumu, but the opening view is the whole
+    // country. Captioning it "Kisumu County" would name somewhere the reader
+    // is not looking.
+    render(<MapFrame county="Kisumu" status="idle" />);
+    expect(await screen.findByText("Kenya")).toBeTruthy();
+    expect(screen.queryByText("Kisumu County")).toBeNull();
   });
 
-  it("shows the calculating state and hides the empty prompt while running", () => {
-    render(<MapFrame county="Kisumu" results={[]} status="running" />);
-    expect(screen.getByText(/Calculating risk surface/)).toBeTruthy();
-    expect(screen.queryByText("No results yet")).toBeNull();
+  it("re-captions once it has flown to a county", async () => {
+    const { rerender } = render(<MapFrame county="Kisumu" status="idle" />);
+    await waitFor(() => expect(leaflet.map).toHaveBeenCalled());
+
+    rerender(<MapFrame county="Baringo" status="idle" />);
+    expect(await screen.findByText("Baringo County")).toBeTruthy();
+    expect(screen.queryByText("Kenya")).toBeNull();
   });
 
-  it("draws one polygon per ward and reports the count once done", () => {
-    const { container } = render(<MapFrame county="Kisumu" results={results} status="done" />);
-    expect(container.querySelectorAll("polygon")).toHaveLength(results.length);
-    expect(screen.getByText(`${results.length} wards modelled`)).toBeTruthy();
+  it("says what the basemap is and where the risk figures live", async () => {
+    // The map carries no risk data on purpose, so it has to say so rather than
+    // leave the reader hunting for shading that will never appear.
+    render(<MapFrame county="Kisumu" status="idle" />);
+    expect(await screen.findByText(/OpenStreetMap basemap/)).toBeTruthy();
+    expect(screen.getByText(/ward risk is listed in the table below/)).toBeTruthy();
   });
 
-  it("labels the map for screen readers with the county", () => {
-    render(<MapFrame county="Baringo" results={results} status="done" />);
-    expect(screen.getByRole("img", { name: /Baringo County/ })).toBeTruthy();
+  it("renders no risk polygons at all", async () => {
+    // The point of the change: fabricated ward shapes must not sit over real
+    // terrain. If an overlay is reintroduced, this is what objects.
+    const { container } = render(<MapFrame county="Kisumu" status="done" />);
+    await screen.findByText("Kenya");
+    expect(container.querySelectorAll("polygon")).toHaveLength(0);
+    // Every svg present belongs to a lucide icon, not to a data layer.
+    expect(container.querySelectorAll("svg")).toHaveLength(
+      container.querySelectorAll("svg[class*='lucide']").length,
+    );
   });
 
-  it("reveals the ward name and risk label on hover, not colour alone", async () => {
+  it("labels the map container with what it frames", async () => {
+    const { rerender } = render(<MapFrame county="Nairobi" status="idle" />);
+    expect(await screen.findByRole("application", { name: "OpenStreetMap of Kenya" })).toBeTruthy();
+
+    await waitFor(() => expect(leaflet.map).toHaveBeenCalled());
+    rerender(<MapFrame county="Baringo" status="idle" />);
+    expect(
+      await screen.findByRole("application", { name: /OpenStreetMap of Baringo County, Kenya/ }),
+    ).toBeTruthy();
+  });
+
+  it("opens on Kenya at the zoom that gives a 200 km scale bar", async () => {
+    render(<MapFrame county="Nairobi" status="idle" />);
+    await waitFor(() => expect(leaflet.map).toHaveBeenCalled());
+
+    const options = leaflet.map.mock.calls[0]![1];
+    expect(options.center).toEqual([KENYA_CENTER.lat, KENYA_CENTER.lon]);
+    expect(options.zoom).toBe(KENYA_ZOOM);
+    expect(scaleBarMetres(KENYA_CENTER.lat, options.zoom)).toBe(200_000);
+  });
+
+  it("advertises that scale on the reset control", async () => {
+    render(<MapFrame county="Nairobi" status="idle" />);
+    expect(await screen.findByRole("button", { name: /Kenya · 200 km/ })).toBeTruthy();
+  });
+
+  it("disables the reset control while Kenya is already framed", async () => {
+    const { rerender } = render(<MapFrame county="Nairobi" status="idle" />);
+    const reset = await screen.findByRole("button", { name: /Kenya · 200 km/ });
+    expect(reset).toHaveProperty("disabled", true);
+
+    await waitFor(() => expect(leaflet.map).toHaveBeenCalled());
+    rerender(<MapFrame county="Kisumu" status="idle" />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Kenya · 200 km/ })).toHaveProperty(
+        "disabled",
+        false,
+      ),
+    );
+  });
+
+  it("returns to the national view when that control is used", async () => {
     const user = userEvent.setup();
-    const { container } = render(<MapFrame county="Kisumu" results={results} status="done" />);
-    await user.hover(container.querySelector("polygon")!);
-    const first = results[0]!;
-    expect(screen.getByText(first.name)).toBeTruthy();
-    expect(screen.getByText(new RegExp(`score ${first.score}`))).toBeTruthy();
+    const { rerender } = render(<MapFrame county="Nairobi" status="idle" />);
+    await waitFor(() => expect(leaflet.map).toHaveBeenCalled());
+
+    // Fly somewhere first, or the control is disabled.
+    rerender(<MapFrame county="Kisumu" status="idle" />);
+    await screen.findByText("Kisumu County");
+
+    await user.click(screen.getByRole("button", { name: /Kenya · 200 km/ }));
+    expect(mapInstance.flyTo).toHaveBeenCalledWith(
+      [KENYA_CENTER.lat, KENYA_CENTER.lon],
+      KENYA_ZOOM,
+      expect.anything(),
+    );
+    expect(await screen.findByText("Kenya")).toBeTruthy();
+  });
+
+  it("adds the OSM tile layer with its required attribution", async () => {
+    render(<MapFrame county="Nairobi" status="idle" />);
+    await waitFor(() => expect(leaflet.tileLayer).toHaveBeenCalled());
+
+    const [url, opts] = leaflet.tileLayer.mock.calls[0]!;
+    expect(url).toBe(TILE_URL);
+    // ODbL obligation, so it is asserted rather than trusted.
+    expect(opts.attribution).toMatch(/OpenStreetMap/);
+    expect(opts.attribution).toContain("openstreetmap.org/copyright");
+  });
+
+  it("adds a metric-only scale control", async () => {
+    render(<MapFrame county="Nairobi" status="idle" />);
+    await waitFor(() => expect(leaflet.control.scale).toHaveBeenCalled());
+
+    const opts = leaflet.control.scale.mock.calls[0]![0];
+    expect(opts.metric).toBe(true);
+    // An imperial bar beside it would make "200 km" ambiguous.
+    expect(opts.imperial).toBe(false);
+    expect(opts.maxWidth).toBe(SCALE_MAX_WIDTH_PX);
+  });
+
+  it("frames the county's real administrative extent when scope changes", async () => {
+    const { rerender } = render(<MapFrame county="Nairobi" status="idle" />);
+    await waitFor(() => expect(leaflet.map).toHaveBeenCalled());
+    mapInstance.flyToBounds.mockClear();
+
+    rerender(<MapFrame county="Baringo" status="idle" />);
+    await waitFor(() => expect(mapInstance.flyToBounds).toHaveBeenCalled());
+
+    const bounds = countyBounds("Baringo")!;
+    expect(mapInstance.flyToBounds.mock.calls[0]![0]).toEqual([
+      [bounds[0][0], bounds[0][1]],
+      [bounds[1][0], bounds[1][1]],
+    ]);
+  });
+
+  it("shows a run indicator only while running", async () => {
+    const { rerender } = render(<MapFrame county="Nairobi" status="idle" />);
+    await screen.findByText("Kenya");
+    expect(screen.queryByText(/Calculating risk scores/)).toBeNull();
+
+    rerender(<MapFrame county="Nairobi" status="running" />);
+    expect(screen.getByText(/Calculating risk scores/)).toBeTruthy();
+
+    rerender(<MapFrame county="Nairobi" status="done" />);
+    expect(screen.queryByText(/Calculating risk scores/)).toBeNull();
+  });
+
+  it("tears the map down on unmount, so a remount cannot double-initialise", async () => {
+    const { unmount } = render(<MapFrame county="Nairobi" status="idle" />);
+    await waitFor(() => expect(leaflet.map).toHaveBeenCalled());
+    unmount();
+    expect(mapInstance.remove).toHaveBeenCalled();
   });
 });
 
