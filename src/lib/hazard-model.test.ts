@@ -232,6 +232,67 @@ describe("wardPolygon", () => {
   it("is deterministic for the same inputs", () => {
     expect(wardPolygon(3, 9, "x")).toBe(wardPolygon(3, 9, "x"));
   });
+
+  // The bug this pins: rad reached 0.50 and was multiplied by 1.5, putting
+  // vertices 0.75 of a cell from centre when the half-width is 0.5. Polygons
+  // overlapped and occluded each other, and the occluded fill is the risk
+  // class, so the map showed the wrong class for the hidden ward.
+  it("keeps every vertex inside its own grid cell", () => {
+    for (const total of [1, 2, 4, 9, 11, 12, 16, 25]) {
+      const cols = Math.ceil(Math.sqrt(total));
+      const rows = Math.ceil(total / cols);
+      const cw = 100 / cols;
+      const ch = 100 / rows;
+      for (let i = 0; i < total; i++) {
+        const cx = (i % cols) * cw;
+        const cy = Math.floor(i / cols) * ch;
+        for (const pt of wardPolygon(i, total, `w${i}`).split(" ")) {
+          const [x, y] = pt.split(",").map(Number) as [number, number];
+          expect(x).toBeGreaterThanOrEqual(cx - 1e-9);
+          expect(x).toBeLessThanOrEqual(cx + cw + 1e-9);
+          expect(y).toBeGreaterThanOrEqual(cy - 1e-9);
+          expect(y).toBeLessThanOrEqual(cy + ch + 1e-9);
+        }
+      }
+    }
+  });
+
+  it("leaves a surface gap between the bounding boxes of any two wards", () => {
+    const total = 12;
+    const boxes = Array.from({ length: total }, (_, i) => {
+      const pts = wardPolygon(i, total, `w${i}`)
+        .split(" ")
+        .map((p) => p.split(",").map(Number) as [number, number]);
+      const xs = pts.map((p) => p[0]);
+      const ys = pts.map((p) => p[1]);
+      return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys),
+      };
+    });
+    for (let a = 0; a < total; a++) {
+      for (let b = a + 1; b < total; b++) {
+        const overlaps =
+          boxes[a]!.minX < boxes[b]!.maxX &&
+          boxes[b]!.minX < boxes[a]!.maxX &&
+          boxes[a]!.minY < boxes[b]!.maxY &&
+          boxes[b]!.minY < boxes[a]!.maxY;
+        expect(overlaps, `ward ${a} overlaps ward ${b}`).toBe(false);
+      }
+    }
+  });
+
+  it("still varies corner distance, so wards do not become regular hexagons", () => {
+    const pts = wardPolygon(0, 9, "vary")
+      .split(" ")
+      .map((p) => p.split(",").map(Number) as [number, number]);
+    const cw = 100 / 3;
+    const ch = 100 / 3;
+    const radii = pts.map(([x, y]) => Math.hypot((x - cw / 2) / cw, (y - ch / 2) / ch));
+    expect(Math.max(...radii) - Math.min(...radii)).toBeGreaterThan(0.02);
+  });
 });
 
 describe("dataset and definition invariants", () => {
