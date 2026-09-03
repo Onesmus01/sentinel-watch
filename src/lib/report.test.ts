@@ -234,6 +234,23 @@ describe("reportFilename", () => {
   it("is stable for the same scope and instant", () => {
     expect(reportFilename(scope(), "csv")).toBe(reportFilename(scope(), "csv"));
   });
+
+  // The filename is stamped in UTC on purpose: it sorts correctly and means the
+  // same thing in every timezone. Anything displaying that instant next to the
+  // filename must therefore show UTC too, or the row disagrees with the file it
+  // describes by the viewer's offset. Pinned here so the choice stays explicit.
+  it("stamps the time in UTC, not the local zone", () => {
+    const at = new Date("2026-09-03T08:07:21.000Z");
+    const name = reportFilename(scope({ generatedAt: at }), "csv");
+    expect(name).toContain("2026-09-03-08-07-21");
+    expect(name).toContain(at.toISOString().slice(0, 19).replace(/[:T]/g, "-"));
+  });
+
+  it("orders lexicographically by time for a fixed scope", () => {
+    const earlier = reportFilename(scope({ generatedAt: new Date("2026-09-03T08:00:00Z") }), "csv");
+    const later = reportFilename(scope({ generatedAt: new Date("2026-09-03T09:00:00Z") }), "csv");
+    expect([later, earlier].sort()).toEqual([earlier, later]);
+  });
 });
 
 describe("renderReport", () => {
