@@ -150,7 +150,17 @@ describe("MapFrame", () => {
     // leave the reader hunting for shading that will never appear.
     render(<MapFrame county="Kisumu" status="idle" />);
     expect(await screen.findByText(/OpenStreetMap basemap/)).toBeTruthy();
-    expect(screen.getByText(/ward risk is listed in the table below/)).toBeTruthy();
+    expect(screen.getByText(/ward risk is in the Ward results table/)).toBeTruthy();
+  });
+
+  it("points at the ward table by name, not by position", async () => {
+    // The table sits in the right rail above xl and below the map under it, so
+    // any directional wording is wrong at one breakpoint or the other.
+    render(<MapFrame county="Kisumu" status="idle" />);
+    await screen.findByText("Kenya");
+    const caption = screen.getByText(/OpenStreetMap basemap/).textContent ?? "";
+    expect(caption).toMatch(/Ward results/);
+    expect(caption).not.toMatch(/below|above|beside|left|right/i);
   });
 
   it("renders no risk polygons at all", async () => {

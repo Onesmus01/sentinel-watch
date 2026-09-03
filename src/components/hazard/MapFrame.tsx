@@ -16,6 +16,8 @@ import {
 interface Props {
   county: string;
   status: "idle" | "running" | "done";
+  /** Lets the page stretch the frame to a grid row it does not know the height of. */
+  className?: string;
 }
 
 /**
@@ -31,7 +33,7 @@ interface Props {
  * library is imported dynamically inside the effect. Only its stylesheet is
  * imported statically, which Vite handles without touching the DOM.
  */
-export function MapFrame({ county, status }: Props) {
+export function MapFrame({ county, status, className = "" }: Props) {
   const holder = useRef<HTMLDivElement>(null);
   const map = useRef<LeafletMap | null>(null);
   const [failed, setFailed] = useState(false);
@@ -137,14 +139,16 @@ export function MapFrame({ county, status }: Props) {
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-border bg-map shadow-sm">
+    <div
+      className={`relative flex flex-col overflow-hidden rounded-xl border border-border bg-map shadow-sm ${className}`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 bg-card/60 px-4 py-2.5 backdrop-blur">
         <div className="min-w-0">
           <p className="font-display text-sm font-semibold tracking-tight">
             {framed ? `${framed} County` : "Kenya"}
           </p>
           <p className="text-xs text-muted-foreground">
-            OpenStreetMap basemap · ward risk is listed in the table below
+            OpenStreetMap basemap · ward risk is in the Ward results table
           </p>
         </div>
         <button
@@ -158,7 +162,11 @@ export function MapFrame({ county, status }: Props) {
         </button>
       </div>
 
-      <div className="relative aspect-4/3 w-full sm:aspect-16/10">
+      {/* Aspect ratio drives the height while this is the only thing in a
+          single column; from xl the page stretches the frame and the map takes
+          the remaining height instead, with a floor so a short rail cannot
+          squash it. */}
+      <div className="relative aspect-4/3 w-full sm:aspect-16/10 xl:aspect-auto xl:min-h-[28rem] xl:flex-1">
         {/* Leaflet owns this node's children, so React must not render any. */}
         <div
           ref={holder}
@@ -174,7 +182,7 @@ export function MapFrame({ county, status }: Props) {
             <div className="max-w-xs">
               <p className="font-display text-sm font-semibold">Basemap unavailable</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                The map tiles could not be loaded. Ward risk is still listed in the table below.
+                The map tiles could not be loaded. Ward risk is still listed under Ward results.
               </p>
             </div>
           </div>

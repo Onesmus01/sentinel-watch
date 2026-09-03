@@ -48,17 +48,21 @@ function Index() {
         </Sheet>
 
         <main className="min-w-0 flex-1 px-4 py-5 sm:px-6">
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-            <div className="min-w-0 space-y-5">
-              <MapFrame county={model.county} status={model.status} />
-              <WardTable results={model.results} />
-            </div>
+          {/* Map on the left taking whatever width is left over, key and ward
+              results stacked in a fixed rail on the right. The rail is 24rem
+              rather than 20rem because the ward table carries four columns; the
+              map gives up 4rem of width and gets the table's whole former
+              height back, which is the better trade on a landscape screen.
 
-            {/* Mean / peak / high-risk-area summary cards removed: out of
-                agreed scope for this phase. The ward table below the map carries
-                the per-ward scores they were derived from. */}
+              items-start, not the default stretch: the rail should size to its
+              content instead of both columns inheriting the taller one. The map
+              is told to fill the row separately. */}
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
+            <MapFrame county={model.county} status={model.status} className="xl:h-full" />
+
             <div className="space-y-4">
               <MapLegend hazard={model.hazard} active={model.results.length > 0} />
+              <WardTable results={model.results} />
             </div>
           </div>
         </main>
