@@ -1,0 +1,21 @@
+#!/bin/sh
+# Gate lane: deterministic, local, free. Runs on every commit.
+#
+# Enable once per clone (not set automatically — core.hooksPath is shared with
+# every worktree of this repo, so turning it on affects other sessions' commits):
+#
+#     git config core.hooksPath .githooks
+#
+# Periodic/paid checks do not belong here. Keep this under a couple of seconds.
+set -e
+
+# Only run when something under src/ or the config actually changed; a docs-only
+# commit should not pay for the suite.
+if git diff --cached --name-only | grep -qE '^(src/|package\.json|vitest\.config\.ts|tsconfig\.json)'; then
+  echo "pre-commit: typecheck"
+  npx tsc --noEmit
+  echo "pre-commit: lint"
+  npm run lint
+  echo "pre-commit: gate tests"
+  npm test
+fi

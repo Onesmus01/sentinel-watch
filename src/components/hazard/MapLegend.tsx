@@ -21,7 +21,9 @@ export function MapLegend({ hazard, active }: { hazard: HazardId; active: boolea
         ))}
       </ul>
       <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
-        Shading appears once a model run completes.
+        {active
+          ? "Scores are illustrative demo values. The ward table lists them without relying on colour."
+          : "Shading appears once a model run completes."}
       </p>
     </div>
   );
