@@ -77,14 +77,20 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "Sentinel Hazard Monitor" },
+      {
+        name: "description",
+        content:
+          "Regional hazard early-warning console: model flood, drought and landslide risk by county, sub-county and ward.",
+      },
+      { name: "author", content: "Regional Disaster Risk Unit" },
+      { property: "og:title", content: "Sentinel Hazard Monitor" },
+      {
+        property: "og:description",
+        content: "Model flood, drought and landslide risk by ward, then download the report.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
       {

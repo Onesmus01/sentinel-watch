@@ -59,6 +59,14 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-chrome: var(--chrome);
+  --color-chrome-foreground: var(--chrome-foreground);
+  --color-chrome-muted: var(--chrome-muted);
+  --color-map: var(--map);
+  /* Display face for headings. Leads with Inter Tight where the OS has it and
+     degrades to the body stack otherwise — deliberately no webfont link, so an
+     early-warning console still renders on a bad connection. */
+  --font-display: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
@@ -75,8 +83,8 @@
   --secondary-foreground: oklch(0.208 0.042 265.755);
   --muted: oklch(0.968 0.007 247.896);
   --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
+  --accent: oklch(0.5753 0.1626 255.53);
+  --accent-foreground: oklch(0.9900 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 247.858);
   --border: oklch(0.929 0.013 255.508);
@@ -95,6 +103,27 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.704 0.04 256.788);
+
+  /* Console chrome: the header and control sidebar stay dark in both modes, so
+     the map is the brightest thing on screen. */
+  --chrome: oklch(0.2400 0.0320 258);
+  --chrome-foreground: oklch(0.9700 0.0050 250);
+  --chrome-muted: oklch(0.3300 0.0320 258);
+
+  /* Map plane. This exact value is the surface the risk ramp was validated
+     against (#f2f2ef) — change it and re-run the ramp validator. */
+  --map: oklch(0.9603 0.0040 106.47);
+
+  /* Risk ramp: single-hue (red, hue 25) ordinal scale, light -> dark, five
+     steps for RISK_CLASSES in src/lib/hazard-model.ts. Generated and checked
+     with the dataviz skill's validate_palette.js --ordinal: monotone lightness,
+     adjacent deltaL 0.0665, lightest step 2.01:1 on --map, single hue. */
+  --risk-1: oklch(0.7550 0.0801 24.93);
+  --risk-2: oklch(0.6894 0.1040 25.28);
+  --risk-3: oklch(0.6236 0.1284 24.97);
+  --risk-4: oklch(0.5564 0.1520 25.27);
+  --risk-5: oklch(0.4898 0.1754 25.46);
+
 }
 
 .dark {
@@ -110,8 +139,8 @@
   --secondary-foreground: oklch(0.984 0.003 247.858);
   --muted: oklch(0.279 0.041 260.031);
   --muted-foreground: oklch(0.704 0.04 256.788);
-  --accent: oklch(0.279 0.041 260.031);
-  --accent-foreground: oklch(0.984 0.003 247.858);
+  --accent: oklch(0.6221 0.1612 255.05);
+  --accent-foreground: oklch(0.1500 0.0200 255);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.984 0.003 247.858);
   --border: oklch(1 0 0 / 10%);
@@ -130,6 +159,22 @@
   --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.551 0.027 264.364);
+
+  --chrome: oklch(0.1900 0.0280 258);
+  --chrome-foreground: oklch(0.9650 0.0050 250);
+  --chrome-muted: oklch(0.2750 0.0300 258);
+
+  /* validated dark map surface (#141413) */
+  --map: oklch(0.1908 0.0020 106.59);
+
+  /* Dark mode is selected, not flipped: same hue, own steps, anchor reversed so
+     Severe is the brightest. Darkest step clears 2:1 on --map (2.31:1). */
+  --risk-1: oklch(0.4406 0.0616 25.49);
+  --risk-2: oklch(0.5244 0.1007 25.05);
+  --risk-3: oklch(0.6112 0.1451 25.33);
+  --risk-4: oklch(0.6944 0.1746 25.11);
+  --risk-5: oklch(0.7737 0.1329 25.57);
+
 }
 
 @layer base {
