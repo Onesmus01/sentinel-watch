@@ -139,8 +139,11 @@ export function MapFrame({ county, status, className = "" }: Props) {
   }
 
   return (
+    // Square off the bottom from xl, where the frame meets the footer: a
+    // rounded corner and a second border line against the footer's own
+    // border-t would read as a floating card that had been clipped.
     <div
-      className={`relative flex flex-col overflow-hidden rounded-xl border border-border bg-map shadow-sm ${className}`}
+      className={`relative flex flex-col overflow-hidden rounded-xl border border-border bg-map shadow-sm xl:rounded-b-none xl:border-b-0 ${className}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 bg-card/60 px-4 py-2.5 backdrop-blur">
         <div className="min-w-0">
@@ -166,7 +169,7 @@ export function MapFrame({ county, status, className = "" }: Props) {
           single column; from xl the page stretches the frame and the map takes
           the remaining height instead, with a floor so a short rail cannot
           squash it. */}
-      <div className="relative aspect-4/3 w-full sm:aspect-16/10 xl:aspect-auto xl:min-h-[28rem] xl:flex-1">
+      <div className="relative aspect-4/3 w-full sm:aspect-16/10 xl:aspect-auto xl:min-h-[18rem] xl:flex-1">
         {/* Leaflet owns this node's children, so React must not render any. */}
         <div
           ref={holder}
