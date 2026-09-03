@@ -1,9 +1,8 @@
-import { Play, RotateCcw, Search, Loader2 } from "lucide-react";
+import { Play, RotateCcw, Search, Loader2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -31,6 +30,39 @@ export function ControlSidebar({ model }: { model: HazardModel }) {
   return (
     <div className="flex h-full flex-col bg-chrome text-chrome-foreground">
       <div className="flex-1 overflow-y-auto">
+        {/* Hazard first: it decides which criteria below are even applicable, so
+            choosing it last would mean revisiting the criteria afterwards. */}
+        <Section title="Hazard">
+          <div className="space-y-2">
+            {HAZARDS.map((h) => {
+              const active = model.hazard === h.id;
+              return (
+                <button
+                  key={h.id}
+                  type="button"
+                  onClick={() => model.setHazard(h.id)}
+                  aria-pressed={active}
+                  className={`w-full rounded-md border px-3 py-2.5 text-left transition-colors ${
+                    active
+                      ? "border-accent bg-accent/15 text-chrome-foreground"
+                      : "border-chrome-muted bg-chrome-muted/30 text-chrome-foreground/70 hover:bg-chrome-muted/60"
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <span
+                      className={`size-2 rounded-full ${active ? "bg-accent" : "bg-chrome-foreground/25"}`}
+                    />
+                    {h.label}
+                  </span>
+                  <span className="mt-0.5 block pl-4 text-xs text-chrome-foreground/45">
+                    {h.blurb}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </Section>
+
         <Section title="Location">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-chrome-foreground/40" />
@@ -38,6 +70,7 @@ export function ControlSidebar({ model }: { model: HazardModel }) {
               value={model.query}
               onChange={(e) => model.setQuery(e.target.value)}
               placeholder="Search location…"
+              aria-label="Search location"
               className="border-chrome-muted bg-chrome-muted/60 pl-9 text-chrome-foreground placeholder:text-chrome-foreground/40"
             />
           </div>
@@ -92,101 +125,106 @@ export function ControlSidebar({ model }: { model: HazardModel }) {
           </div>
         </Section>
 
-        <Section title="Hazards">
+        <Section title="Criteria">
+          <p className="mb-3 text-xs text-chrome-foreground/45">
+            Select the criteria this run should account for. Nothing is included until you choose
+            it.
+          </p>
+
           <div className="space-y-2">
-            {HAZARDS.map((h) => {
-              const active = model.hazard === h.id;
+            {PARAMETERS.map((p) => {
+              const on = model.selected.includes(p.id);
+              const applies = model.applicable.includes(p.id);
               return (
-                <button
-                  key={h.id}
-                  type="button"
-                  onClick={() => model.setHazard(h.id)}
-                  aria-pressed={active}
-                  className={`w-full rounded-md border px-3 py-2.5 text-left transition-colors ${
-                    active
-                      ? "border-accent bg-accent/15 text-chrome-foreground"
-                      : "border-chrome-muted bg-chrome-muted/30 text-chrome-foreground/70 hover:bg-chrome-muted/60"
+                <div
+                  key={p.id}
+                  className={`rounded-md border px-3 py-2.5 transition-colors ${
+                    on
+                      ? "border-chrome-muted bg-chrome-muted/50"
+                      : "border-chrome-muted/60 bg-chrome-muted/20"
                   }`}
                 >
-                  <span className="flex items-center gap-2 text-sm font-medium">
-                    <span
-                      className={`size-2 rounded-full ${active ? "bg-accent" : "bg-chrome-foreground/25"}`}
+                  <div className="flex items-center gap-2.5">
+                    <Checkbox
+                      id={`criterion-${p.id}`}
+                      checked={on}
+                      onCheckedChange={() => model.toggleParameter(p.id)}
+                      className="border-chrome-foreground/30 data-[state=checked]:border-accent data-[state=checked]:bg-accent"
                     />
-                    {h.label}
-                  </span>
-                  <span className="mt-0.5 block pl-4 text-xs text-chrome-foreground/45">
-                    {h.blurb}
-                  </span>
-                </button>
+                    <Label
+                      htmlFor={`criterion-${p.id}`}
+                      className="flex-1 cursor-pointer text-sm text-chrome-foreground/85"
+                    >
+                      {p.label}
+                    </Label>
+
+                    {on && (
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          value={model.parameters[p.id]}
+                          min={p.min}
+                          max={p.max}
+                          step={p.step}
+                          aria-label={`${p.label} value in ${p.unit}`}
+                          onChange={(e) => {
+                            // Clamp on the way in: the model clamps too, but an
+                            // out-of-range figure left visible in the field would
+                            // not match the number the run actually used.
+                            const n = Number(e.target.value);
+                            if (Number.isNaN(n)) return;
+                            model.setParameter(p.id, Math.max(p.min, Math.min(p.max, n)));
+                          }}
+                          className="h-8 w-20 border-chrome-muted bg-chrome/80 text-right text-chrome-foreground tabular-nums"
+                        />
+                        <span className="w-6 text-xs text-chrome-foreground/50">{p.unit}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {on && (
+                    <p className="mt-1.5 pl-[26px] text-[11px] text-chrome-foreground/40">
+                      {applies ? (
+                        <>
+                          Range {p.min}–{p.max}
+                          {p.unit} · default {p.default}
+                          {p.unit}
+                        </>
+                      ) : (
+                        <span className="flex items-center gap-1 text-chrome-foreground/70">
+                          <Info className="size-3 shrink-0" />
+                          Not used for{" "}
+                          {HAZARDS.find((h) => h.id === model.hazard)?.label.toLowerCase()}; it will
+                          not affect this run.
+                        </span>
+                      )}
+                    </p>
+                  )}
+                </div>
               );
             })}
           </div>
-        </Section>
 
-        <Section title="Parameters">
-          <div className="flex items-center justify-between rounded-md border border-chrome-muted bg-chrome-muted/30 px-3 py-2.5">
-            <Label htmlFor="defaults" className="text-sm text-chrome-foreground/80">
-              Use system defaults
-            </Label>
-            <Switch
-              id="defaults"
-              checked={model.useDefaults}
-              onCheckedChange={model.toggleDefaults}
-            />
-          </div>
-
-          <div
-            className={`mt-4 space-y-5 transition-opacity ${model.useDefaults ? "opacity-45" : ""}`}
-          >
-            {PARAMETERS.map((p) => (
-              <div key={p.id}>
-                <div className="flex items-center justify-between gap-2">
-                  <Label className="text-sm text-chrome-foreground/80">{p.label}</Label>
-                  <div className="flex items-center gap-1">
-                    <Input
-                      type="number"
-                      value={model.parameters[p.id]}
-                      min={p.min}
-                      max={p.max}
-                      step={p.step}
-                      disabled={model.useDefaults}
-                      onChange={(e) =>
-                        model.setParameter(
-                          p.id,
-                          Math.max(p.min, Math.min(p.max, Number(e.target.value))),
-                        )
-                      }
-                      className="h-8 w-20 border-chrome-muted bg-chrome-muted/60 text-right text-chrome-foreground tabular-nums"
-                    />
-                    <span className="w-6 text-xs text-chrome-foreground/50">{p.unit}</span>
-                  </div>
-                </div>
-                <Slider
-                  className="mt-2.5"
-                  value={[model.parameters[p.id]]}
-                  min={p.min}
-                  max={p.max}
-                  step={p.step}
-                  disabled={model.useDefaults}
-                  onValueChange={([v]) => model.setParameter(p.id, v ?? p.default)}
-                />
-                <p className="mt-1 text-[11px] text-chrome-foreground/40">
-                  Default {p.default}
-                  {p.unit}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {!model.useDefaults && (
-            <button
-              type="button"
-              onClick={model.resetParameters}
-              className="mt-4 inline-flex items-center gap-1.5 text-xs text-accent transition-opacity hover:opacity-80"
-            >
-              <RotateCcw className="size-3.5" />
-              Reset to defaults
-            </button>
+          {model.selected.length > 0 && (
+            <div className="mt-3 flex items-center gap-4">
+              {!model.usesDefaults && (
+                <button
+                  type="button"
+                  onClick={model.resetParameters}
+                  className="inline-flex items-center gap-1.5 text-xs text-accent transition-opacity hover:opacity-80"
+                >
+                  <RotateCcw className="size-3.5" />
+                  Use system defaults
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={model.clearParameters}
+                className="text-xs text-chrome-foreground/45 transition-colors hover:text-chrome-foreground/80"
+              >
+                Clear selection
+              </button>
+            </div>
           )}
         </Section>
       </div>
@@ -194,7 +232,7 @@ export function ControlSidebar({ model }: { model: HazardModel }) {
       <div className="border-t border-chrome-muted p-4">
         <Button
           onClick={model.run}
-          disabled={running}
+          disabled={running || !model.canRun}
           className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
           size="lg"
         >
@@ -208,6 +246,11 @@ export function ControlSidebar({ model }: { model: HazardModel }) {
             </>
           )}
         </Button>
+        <p aria-live="polite" className="mt-2 text-center text-[11px] text-chrome-foreground/45">
+          {model.canRun
+            ? `${model.activeCriteria.length} of ${model.applicable.length} applicable criteria selected`
+            : "Select at least one criterion that applies to this hazard"}
+        </p>
       </div>
     </div>
   );

@@ -5,7 +5,6 @@ import { AppHeader } from "@/components/hazard/AppHeader";
 import { ControlSidebar } from "@/components/hazard/ControlSidebar";
 import { MapFrame } from "@/components/hazard/MapFrame";
 import { MapLegend } from "@/components/hazard/MapLegend";
-import { ResultSummary } from "@/components/hazard/ResultSummary";
 import { SiteFooter } from "@/components/hazard/SiteFooter";
 import { WardTable } from "@/components/hazard/WardTable";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -55,9 +54,11 @@ function Index() {
               <WardTable results={model.results} />
             </div>
 
+            {/* Mean / peak / high-risk-area summary cards removed: out of
+                agreed scope for this phase. The ward table below the map carries
+                the per-ward scores they were derived from. */}
             <div className="space-y-4">
               <MapLegend hazard={model.hazard} active={model.results.length > 0} />
-              <ResultSummary results={model.results} />
             </div>
           </div>
         </main>

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PARAMETERS, runModel, type WardResult } from "./hazard-model";
+import {
+  DEFAULT_PARAMETERS,
+  applicableParameters,
+  runModel,
+  type ParameterId,
+  type WardResult,
+} from "./hazard-model";
 import {
   CSV_COLUMNS,
+  effectiveCriteria,
   renderReport,
   reportFilename,
   slug,
@@ -11,6 +18,8 @@ import {
   type ReportScope,
 } from "./report";
 
+const FLOOD: ParameterId[] = applicableParameters("flood");
+
 const AT = new Date("2026-09-03T10:26:48.000Z");
 
 const scope = (over: Partial<ReportScope> = {}): ReportScope => ({
@@ -19,12 +28,13 @@ const scope = (over: Partial<ReportScope> = {}): ReportScope => ({
   ward: "all",
   hazard: "flood",
   parameters: DEFAULT_PARAMETERS,
+  selected: FLOOD,
   usedDefaults: true,
   generatedAt: AT,
   ...over,
 });
 
-const results = () => runModel("Kisumu", "flood", DEFAULT_PARAMETERS);
+const results = () => runModel("Kisumu", "flood", DEFAULT_PARAMETERS, FLOOD);
 
 /** Split a CSV line on unquoted commas only. */
 function splitCsvLine(line: string): string[] {
@@ -48,11 +58,9 @@ function splitCsvLine(line: string): string[] {
 }
 
 describe("summarise", () => {
-  it("reports zeroes and a full zeroed class breakdown for no results", () => {
+  it("reports zero wards and a full zeroed class breakdown for no results", () => {
     const s = summarise([]);
     expect(s.wards).toBe(0);
-    expect(s.averageScore).toBe(0);
-    expect(s.highestWard).toBe("");
     expect(s.byClass).toHaveLength(5);
     expect(s.byClass.every((c) => c.count === 0)).toBe(true);
   });
@@ -64,31 +72,51 @@ describe("summarise", () => {
     expect(s.wards).toBe(r.length);
   });
 
-  it("finds the true maximum and names the ward that holds it", () => {
-    const r = results();
-    const s = summarise(r);
-    const max = Math.max(...r.map((x) => x.score));
-    expect(s.highestScore).toBe(max);
-    expect(r.find((x) => x.name === s.highestWard)!.score).toBe(max);
+  it("keeps the class breakdown in ramp order", () => {
+    expect(summarise(results()).byClass.map((c) => c.id)).toEqual([
+      "very-low",
+      "low",
+      "moderate",
+      "high",
+      "severe",
+    ]);
   });
 
-  it("averages to an integer inside the observed range", () => {
-    const r = results();
-    const s = summarise(r);
-    expect(Number.isInteger(s.averageScore)).toBe(true);
-    expect(s.averageScore).toBeGreaterThanOrEqual(Math.min(...r.map((x) => x.score)));
-    expect(s.averageScore).toBeLessThanOrEqual(Math.max(...r.map((x) => x.score)));
+  it("derives no mean, peak or high-risk-area metric", () => {
+    // Dropped as out of agreed scope for this phase. Asserted rather than just
+    // deleted, so reinstating one is a deliberate act with a failing test first.
+    const s = summarise(results()) as unknown as Record<string, unknown>;
+    for (const gone of ["averageScore", "highestScore", "highestWard", "highRisk"]) {
+      expect(s[gone]).toBeUndefined();
+    }
+    expect(Object.keys(s).sort()).toEqual(["byClass", "wards"]);
   });
 
   it("handles a single ward", () => {
-    const one = runModel("Kisumu", "flood", DEFAULT_PARAMETERS, {
+    const one = runModel("Kisumu", "flood", DEFAULT_PARAMETERS, FLOOD, {
       subCounty: "Nyando",
       ward: "Ahero",
     });
-    const s = summarise(one);
-    expect(s.wards).toBe(1);
-    expect(s.averageScore).toBe(one[0]!.score);
-    expect(s.highestWard).toBe("Ahero");
+    expect(summarise(one).wards).toBe(1);
+  });
+});
+
+describe("effectiveCriteria", () => {
+  it("keeps only the criteria the hazard actually uses", () => {
+    expect(effectiveCriteria(scope({ selected: ["rainfall", "temperature"] }))).toEqual([
+      "rainfall",
+    ]);
+  });
+
+  it("returns an empty list for a wholly inapplicable selection", () => {
+    expect(effectiveCriteria(scope({ selected: ["temperature"] }))).toEqual([]);
+  });
+
+  it("preserves the caller's order", () => {
+    expect(effectiveCriteria(scope({ selected: ["humidity", "rainfall"] }))).toEqual([
+      "humidity",
+      "rainfall",
+    ]);
   });
 });
 
@@ -142,6 +170,10 @@ describe("toCsv", () => {
     expect(csv.split("\n")[1]).not.toContain('"');
   });
 
+  it("declares criteria_used before the value columns it explains", () => {
+    expect(CSV_COLUMNS.indexOf("criteria_used")).toBeLessThan(CSV_COLUMNS.indexOf("gradient_pct"));
+  });
+
   it("writes the parameters actually used, not the defaults, when overridden", () => {
     const custom = { gradient: 33, rainfall: 210, temperature: 31, humidity: 44 };
     const rows = toCsv(results(), scope({ parameters: custom, usedDefaults: false }))
@@ -149,9 +181,66 @@ describe("toCsv", () => {
       .split("\n")
       .slice(1)
       .map(splitCsvLine);
+    const col = (name: string) => CSV_COLUMNS.indexOf(name as (typeof CSV_COLUMNS)[number]);
     for (const row of rows) {
-      expect(row.slice(6, 10)).toEqual(["33", "210", "31", "44"]);
+      // Flood uses gradient, rainfall and humidity; temperature is not a flood
+      // term, so its column must be blank rather than carrying 31.
+      expect(row[col("gradient_pct")]).toBe("33");
+      expect(row[col("rainfall_mm")]).toBe("210");
+      expect(row[col("humidity_pct")]).toBe("44");
+      expect(row[col("temperature_c")]).toBe("");
     }
+  });
+
+  it("blanks the value column of every criterion the run did not use", () => {
+    const rows = toCsv(results(), scope({ selected: ["rainfall"] }))
+      .trimEnd()
+      .split("\n")
+      .slice(1)
+      .map(splitCsvLine);
+    const col = (name: string) => CSV_COLUMNS.indexOf(name as (typeof CSV_COLUMNS)[number]);
+    for (const row of rows) {
+      expect(row[col("rainfall_mm")]).toBe(String(DEFAULT_PARAMETERS.rainfall));
+      for (const blank of ["gradient_pct", "temperature_c", "humidity_pct"]) {
+        expect(row[col(blank)]).toBe("");
+      }
+    }
+  });
+
+  it("names the criteria used, so a blank is never mistaken for a missing reading", () => {
+    const rows = toCsv(results(), scope({ selected: ["rainfall", "humidity"] }))
+      .trimEnd()
+      .split("\n")
+      .slice(1)
+      .map(splitCsvLine);
+    const col = CSV_COLUMNS.indexOf("criteria_used");
+    for (const row of rows) {
+      expect(row[col]).toBe("rainfall;humidity");
+    }
+  });
+
+  it("omits an inapplicable criterion from criteria_used", () => {
+    const rows = toCsv(results(), scope({ selected: ["rainfall", "temperature"] }))
+      .trimEnd()
+      .split("\n")
+      .slice(1)
+      .map(splitCsvLine);
+    expect(rows[0]![CSV_COLUMNS.indexOf("criteria_used")]).toBe("rainfall");
+  });
+
+  it("uses semicolons in criteria_used so the field never needs quoting", () => {
+    const csv = toCsv(results(), scope({ selected: ["rainfall", "humidity", "gradient"] }));
+    expect(csv).toContain("rainfall;humidity;gradient");
+    expect(csv.split("\n")[1]).not.toContain('"');
+  });
+
+  it("leaves criteria_used empty when nothing applicable was selected", () => {
+    const rows = toCsv(results(), scope({ selected: ["temperature"] }))
+      .trimEnd()
+      .split("\n")
+      .slice(1)
+      .map(splitCsvLine);
+    expect(rows[0]![CSV_COLUMNS.indexOf("criteria_used")]).toBe("");
   });
 
   it("emits header only for an empty result set", () => {
@@ -169,6 +258,7 @@ describe("toJson", () => {
     expect(j.wards).toHaveLength(r.length);
     expect(j.summary.wards).toBe(r.length);
     expect(j.parameters.usedSystemDefaults).toBe(true);
+    expect(j.parameters.selected.sort()).toEqual([...FLOOD].sort());
     expect(j.disclaimer).toMatch(/not for operational decisions/i);
   });
 
@@ -266,5 +356,43 @@ describe("renderReport", () => {
     expect(f.filename.endsWith(".json")).toBe(true);
     expect(f.mime).toBe("application/json");
     expect(() => JSON.parse(f.body)).not.toThrow();
+  });
+});
+
+describe("toJson criterion reporting", () => {
+  it("carries values only for the criteria that took part", () => {
+    const j = JSON.parse(toJson(results(), scope({ selected: ["rainfall"] })));
+    expect(j.parameters.selected).toEqual(["rainfall"]);
+    expect(Object.keys(j.parameters.values)).toEqual(["rainfall"]);
+    expect(j.parameters.values.rainfall).toBe(DEFAULT_PARAMETERS.rainfall);
+  });
+
+  it("records a selected-but-inapplicable criterion as ignored, not as an input", () => {
+    const j = JSON.parse(toJson(results(), scope({ selected: ["rainfall", "temperature"] })));
+    expect(j.parameters.selected).toEqual(["rainfall"]);
+    expect(j.parameters.ignored).toEqual(["temperature"]);
+    expect(j.parameters.values.temperature).toBeUndefined();
+  });
+
+  it("describes only the criteria it carries, with their CSV column names", () => {
+    const j = JSON.parse(toJson(results(), scope({ selected: ["rainfall"] })));
+    expect(j.parameters.definitions).toHaveLength(1);
+    expect(j.parameters.definitions[0]).toMatchObject({
+      id: "rainfall",
+      unit: "mm",
+      column: "rainfall_mm",
+    });
+  });
+
+  it("carries no mean or peak metric in the summary", () => {
+    const j = JSON.parse(toJson(results(), scope()));
+    expect(Object.keys(j.summary).sort()).toEqual(["byClass", "wards"]);
+  });
+
+  it("stays valid JSON with nothing applicable selected", () => {
+    const j = JSON.parse(toJson(results(), scope({ selected: [] })));
+    expect(j.parameters.selected).toEqual([]);
+    expect(j.parameters.values).toEqual({});
+    expect(j.parameters.definitions).toEqual([]);
   });
 });
