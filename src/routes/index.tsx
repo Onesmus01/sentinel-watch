@@ -50,7 +50,7 @@ function Index() {
         <main className="min-w-0 flex-1 px-4 py-5 sm:px-6">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
             <div className="min-w-0 space-y-5">
-              <MapFrame county={model.county} results={model.results} status={model.status} />
+              <MapFrame county={model.county} status={model.status} />
               <WardTable results={model.results} />
             </div>
 

@@ -33,14 +33,14 @@ npm i          # or: bun install  (bun.lock is the committed lockfile)
 npm run dev    # vite dev on :8080, or the next free port
 ```
 
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Dev server with HMR |
-| `npm run build` | Production build (also regenerates `src/routeTree.gen.ts`) |
-| `npm test` | Gate tests — deterministic, local, no network |
-| `npm run test:watch` | Same suite in watch mode |
-| `npm run lint` | ESLint + Prettier |
-| `npm run format` | Prettier write |
+| Command              | What it does                                               |
+| -------------------- | ---------------------------------------------------------- |
+| `npm run dev`        | Dev server with HMR                                        |
+| `npm run build`      | Production build (also regenerates `src/routeTree.gen.ts`) |
+| `npm test`           | Gate tests — deterministic, local, no network              |
+| `npm run test:watch` | Same suite in watch mode                                   |
+| `npm run lint`       | ESLint + Prettier                                          |
+| `npm run format`     | Prettier write                                             |
 
 Enable the pre-commit gate once per clone:
 
@@ -57,6 +57,7 @@ It typechecks, lints and runs the gate tests, but only when the commit touches
 src/
   lib/hazard-model.ts   pure scoring model, county/ward dataset, risk classes
   lib/report.ts         report contract: summarise, CSV, JSON, filenames
+  lib/geo.ts            map geography, tile source, scale-bar arithmetic
   hooks/                useHazardModel — scope + parameter + run state machine
   components/hazard/     the console's own components
   components/ui/        vendored shadcn primitives (do not hand-edit)
@@ -74,6 +75,49 @@ This is one Vite app and one deploy unit, not a set of services. Splitting a
 single client bundle across service directories would add directories without
 adding isolation, since it all ships together anyway.
 
+## The map
+
+An OpenStreetMap basemap via [Leaflet](https://leafletjs.com/), opening on Kenya
+at a **200 km scale**. That figure is not a magic number: `scaleBarMetres()` in
+`src/lib/geo.ts` reimplements Leaflet's scale-bar rounding, and `geo.test.ts`
+asserts it returns exactly 200 km at `KENYA_ZOOM`, so changing the zoom fails a
+test rather than quietly changing the caption. Selecting a county flies to that
+county's real administrative extent; the header control returns to the national
+view.
+
+Leaflet reads `window` at import time and this app server-renders, so
+`MapFrame` imports the library dynamically inside an effect. Only its stylesheet
+is imported statically.
+
+County extents were looked up against Nominatim rather than recalled, and each
+resolved to a `boundary/administrative` feature. Worth knowing if you add
+counties: a free-text query for "Baringo County, Kenya" returns an estate
+agent's office in Kabarnet, and Nominatim has no county-level boundary under
+that name at all — it only resolves with `featureType=state`. `geo.test.ts`
+rejects any extent too small to be a county, which is what would have caught it.
+
+### The basemap carries no risk data, on purpose
+
+The dataset has **no geometry**. Ward "shapes" used to be seeded pseudo-random
+hexagons on an abstract 100×100 grid — fine as an abstract diagram, and actively
+misleading over real terrain, because fabricated positions on a real map read as
+geospatial output. Risk lives where it can be read honestly: the graduated
+legend and the ward table. An overlay lands when real ward boundaries do, and
+the natural shape is a county choropleth from boundary GeoJSON.
+
+### Tiles: demo-only
+
+`TILE_URL` points at OpenStreetMap's public tile server. Two things follow:
+
+- **Its [usage policy](https://operations.osmfoundation.org/policies/tiles/)
+  forbids production or heavy use.** Before deploying, move to a commercial
+  provider or a self-hosted renderer. That is a change to `TILE_URL` and
+  `TILE_ATTRIBUTION` in `src/lib/geo.ts` and nothing else.
+- **The ODbL requires the attribution to stay visible.** It is rendered by
+  Leaflet's attribution control, and both `geo.test.ts` and the `MapFrame` tests
+  assert it credits OpenStreetMap and links the copyright page — so it is not
+  something a later layout tidy can quietly drop.
+
 ## Design tokens
 
 `src/styles.css` defines everything in oklch. Two groups are specific to this app:
@@ -89,7 +133,7 @@ The ramp is a single-hue (red) ordinal scale, light to dark, checked with the
 surface: monotone lightness, adjacent ΔL 0.0665, single hue, and a lightest step
 that still clears 2:1 on the map. It clears 2:1 on purpose rather than fading
 into the surface the way a continuous choropleth ramp may — unmodelled area here
-*is* the map background, so a washed-out "Very Low" would be indistinguishable
+_is_ the map background, so a washed-out "Very Low" would be indistinguishable
 from "not modelled".
 
 Risk is never carried by colour alone: the legend labels every class with its
@@ -117,6 +161,9 @@ so it can run on every commit.
   filtering, defaults handling, run lifecycle.
 - `src/components/hazard/hazard-components.test.tsx` — rendered behaviour.
 - `src/test/design-tokens.test.ts` — reads `styles.css`; the guard described above.
+- `src/lib/geo.test.ts` — the 200 km scale invariant, Web Mercator ground
+  resolution, Leaflet's scale rounding, county extents (including that each is
+  county-sized rather than a geocoded point), and the tile source's attribution.
 
 There is no paid eval lane, because nothing in this app calls a model. The
 scoring is arithmetic, so it gets unit tests rather than an eval threshold. Add
