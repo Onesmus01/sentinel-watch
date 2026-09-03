@@ -66,8 +66,8 @@ export function MapFrame({ county, results, status }: Props) {
             <div className="max-w-xs">
               <p className="font-display text-sm font-semibold">No results yet</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Choose a location and hazard, adjust parameters if needed, then press Run to render
-                risk classes on the map.
+                Pick a hazard and a location, select the criteria the run should account for, then
+                press Run to render risk classes on the map.
               </p>
             </div>
           </div>
