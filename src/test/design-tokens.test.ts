@@ -52,18 +52,21 @@ const theme = block("@theme inline {");
 describe("custom properties referenced via var()", () => {
   const used = [...new Set([...ownCode.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]!))];
 
-  it("finds the var() references it is meant to be checking", () => {
-    // If a refactor moves these to Tailwind classes this test would silently
-    // pass on an empty list, so assert the list is non-trivial.
-    expect(used.length).toBeGreaterThan(0);
+  it("defines every statically referenced token in both modes", () => {
+    // The list is legitimately empty now that the map is an OpenStreetMap
+    // basemap: nothing in our own code spells a token name out literally any
+    // more. Kept because the next one added must still resolve, and asserting a
+    // non-empty list here would fail for the wrong reason.
+    for (const name of used) {
+      expect(root, `${name} missing from :root`).toContain(`${name}:`);
+      expect(dark, `${name} missing from .dark`).toContain(`${name}:`);
+    }
   });
 
-  it.each(used)("defines %s in :root", (name) => {
-    expect(root).toContain(`${name}:`);
-  });
-
-  it.each(used)("defines %s in .dark", (name) => {
-    expect(dark).toContain(`${name}:`);
+  it("still reaches the risk ramp dynamically, off RISK_CLASSES", () => {
+    // This is what replaced the static references, and it is what keeps the
+    // ramp assertions below from scanning something nothing uses.
+    expect(ownCode).toMatch(/var\(\$\{[^}]*varName\}\)/);
   });
 });
 

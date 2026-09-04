@@ -59,6 +59,29 @@ describe("/ is wired to the hazard console", () => {
     expect(src).not.toContain("ResultSummary");
   });
 
+  it("bounds the shell to the viewport from xl, so the footer is on screen", () => {
+    // Without this the page is header + a 100vh rail + a footer, which is
+    // taller than the viewport by exactly the footer's height — so the footer
+    // the map is supposed to meet sits below the fold.
+    expect(src).toMatch(/xl:h-screen/);
+  });
+
+  it("stops the control rail sizing itself against the whole viewport at xl", () => {
+    // h-[calc(100vh-61px)] assumed nothing followed the rail. It is still
+    // correct at lg, where the page scrolls, so the fix is an xl override
+    // rather than a removal.
+    expect(src).toContain("h-[calc(100vh-61px)]");
+    expect(src).toMatch(/xl:h-full/);
+  });
+
+  it("drops the main pad at the bottom from xl, so the map can reach the footer", () => {
+    expect(src).toMatch(/xl:pb-0/);
+  });
+
+  it("lets the right rail scroll inside itself rather than growing the page", () => {
+    expect(src).toMatch(/xl:overflow-y-auto/);
+  });
+
   it("offers the controls on small screens too, not only in the lg rail", () => {
     // The rail is `hidden lg:block`, so without a drawer the whole control set
     // would be unreachable on a phone.
