@@ -278,36 +278,3 @@ export function runModel(
       return { ...w, score, risk: riskClassFor(score) };
     });
 }
-
-/**
- * Fraction of each grid cell left as bare surface around its ward, so
- * neighbouring polygons never touch. Load-bearing, not cosmetic: an overlapping
- * polygon occludes the fill of the ward underneath it, and that fill *is* the
- * risk class, so overlap makes the map show the wrong answer.
- */
-const CELL_MARGIN = 0.06;
-
-/** Simple irregular polygon layout so the map frame reads as terrain, not a grid. */
-export function wardPolygon(index: number, total: number, seed: string): string {
-  const cols = Math.ceil(Math.sqrt(total));
-  const rows = Math.ceil(total / cols);
-  const cw = 100 / cols;
-  const ch = 100 / rows;
-  const cx = (index % cols) * cw;
-  const cy = Math.floor(index / cols) * ch;
-  const pts: string[] = [];
-  const corners = 6;
-  // Largest allowed centre-to-vertex distance, as a fraction of the cell.
-  const bound = 0.5 - CELL_MARGIN;
-  for (let i = 0; i < corners; i++) {
-    const a = (i / corners) * Math.PI * 2;
-    // Irregularity is kept: rad still varies per corner over 0.34..0.50, it is
-    // just rescaled so the largest possible corner lands exactly on the bound.
-    const rad = 0.34 + seeded(seed, i + 11) * 0.16;
-    const r = (rad / 0.5) * bound;
-    const x = cx + cw / 2 + Math.cos(a) * cw * r;
-    const y = cy + ch / 2 + Math.sin(a) * ch * r;
-    pts.push(`${x.toFixed(2)},${y.toFixed(2)}`);
-  }
-  return pts.join(" ");
-}
