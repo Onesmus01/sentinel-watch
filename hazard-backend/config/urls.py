@@ -14,4 +14,6 @@ urlpatterns = [
         "api/calculations/",
         include("calculations.urls"),
     ),
+    path("api/locations/", include("locations.urls")),
+   
 ]

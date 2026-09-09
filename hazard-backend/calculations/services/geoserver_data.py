@@ -170,16 +170,12 @@ class GeoServerDataService:
         query_parts = []
 
         for key, value in params.items():
-
             if isinstance(value, list):
-
                 for item in value:
                     query_parts.append(
                         f"{key}={item}"
                     )
-
             else:
-
                 query_parts.append(
                     f"{key}={value}"
                 )
@@ -200,7 +196,14 @@ class GeoServerDataService:
         timeout=120,
     ):
         """
-        Download a GeoServer resource to disk.
+        Stream a GeoServer resource to disk.
+
+        Large WCS GeoTIFF files should not be loaded completely
+        into memory. The response is therefore downloaded in
+        chunks and written directly to a temporary file.
+
+        The temporary file is renamed to the final path only
+        after the download completes successfully.
         """
 
         output_path = os.path.abspath(
@@ -217,30 +220,63 @@ class GeoServerDataService:
                 exist_ok=True,
             )
 
-        try:
+        temporary_path = (
+            f"{output_path}.part"
+        )
 
+        try:
             with urlopen(
                 url,
                 timeout=timeout,
             ) as response:
 
-                content = response.read()
+                with open(
+                    temporary_path,
+                    "wb",
+                ) as output_file:
 
-            with open(
+                    while True:
+
+                        chunk = response.read(
+                            1024 * 1024
+                        )
+
+                        if not chunk:
+                            break
+
+                        output_file.write(
+                            chunk
+                        )
+
+            os.replace(
+                temporary_path,
                 output_path,
-                "wb",
-            ) as output_file:
+            )
 
-                output_file.write(content)
+            return output_path
 
         except HTTPError as exc:
 
+            if os.path.exists(
+                temporary_path
+            ):
+                os.remove(
+                    temporary_path
+                )
+
             raise RuntimeError(
-                f"GeoServer returned HTTP "
+                "GeoServer returned HTTP "
                 f"{exc.code}: {exc.reason}"
             ) from exc
 
         except URLError as exc:
+
+            if os.path.exists(
+                temporary_path
+            ):
+                os.remove(
+                    temporary_path
+                )
 
             raise RuntimeError(
                 "Unable to connect to GeoServer: "
@@ -249,11 +285,27 @@ class GeoServerDataService:
 
         except TimeoutError as exc:
 
+            if os.path.exists(
+                temporary_path
+            ):
+                os.remove(
+                    temporary_path
+                )
+
             raise RuntimeError(
                 "Connection to GeoServer timed out."
             ) from exc
 
-        return output_path
+        except Exception:
+
+            if os.path.exists(
+                temporary_path
+            ):
+                os.remove(
+                    temporary_path
+                )
+
+            raise
 
     # ------------------------------------------------------------------
     # VECTOR DOWNLOAD

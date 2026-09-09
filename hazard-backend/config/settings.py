@@ -25,10 +25,13 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv(
     "SECRET_KEY",
-    "django-insecure-development-key"
+    "django-insecure-development-key",
 )
 
-DEBUG = os.getenv("DEBUG", "True").lower() == "true"
+DEBUG = os.getenv(
+    "DEBUG",
+    "True",
+).lower() == "true"
 
 
 ALLOWED_HOSTS = [
@@ -259,11 +262,67 @@ GEOSERVER_PASSWORD = os.getenv(
 
 
 # ============================================================
-# GEO DJANGO
+# GEO DJANGO — WINDOWS GIS LIBRARIES
 # ============================================================
 
-# GeoDjango uses the system-installed GEOS/GDAL/PROJ libraries.
-# PostgreSQL/PostGIS handles the database-side spatial operations.
+# OSGeo4W installation verified at:
+# C:\Users\onesm\AppData\Local\Programs\OSGeo4W
 #
-# We intentionally do not hard-code GDAL_LIBRARY_PATH or
-# GEOS_LIBRARY_PATH here until we verify the Windows installation.
+# Verified GDAL:
+# GDAL 3.13.3
+#
+# These native DLLs are required by GeoDjango.
+
+OSGEO4W_BIN = (
+    r"C:\Users\onesm\AppData\Local\Programs\OSGeo4W\bin"
+)
+
+GDAL_LIBRARY_PATH = os.path.join(
+    OSGEO4W_BIN,
+    "gdal313.dll",
+)
+
+GEOS_LIBRARY_PATH = os.path.join(
+    OSGEO4W_BIN,
+    "geos_c.dll",
+)
+
+
+# ============================================================
+# PROJ
+# ============================================================
+
+# PROJ is used by GDAL/GeoPandas/Rasterio for coordinate
+# reference systems and CRS transformations.
+
+PROJ_LIB = os.path.join(
+    OSGEO4W_BIN,
+    "proj",
+)
+
+os.environ.setdefault(
+    "PROJ_LIB",
+    PROJ_LIB,
+)
+
+# Make OSGeo4W native libraries available to Python processes.
+os.environ["PATH"] = (
+    OSGEO4W_BIN
+    + os.pathsep
+    + os.environ.get("PATH", "")
+)
+
+
+# ============================================================
+# GIS ENVIRONMENT
+# ============================================================
+
+# OSGeo4W provides the native:
+# - GDAL
+# - GEOS
+# - PROJ
+#
+# PostgreSQL/PostGIS handles database-side spatial operations.
+#
+# GeoDjango provides Django-side spatial models and operations.
+# Rasterio/GeoPandas will use the same native GIS ecosystem.

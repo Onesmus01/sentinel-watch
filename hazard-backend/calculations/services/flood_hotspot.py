@@ -3,8 +3,9 @@ import os
 import numpy as np
 import geopandas as gpd
 import rasterio
+
 from rasterio.mask import mask
-from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio.warp import reproject, Resampling
 from rasterio.features import rasterize
 
 from scipy.ndimage import distance_transform_edt, gaussian_filter
@@ -33,48 +34,71 @@ if BASE_DIR is not None:
     BASE_DIR = str(BASE_DIR)
 
 
-# ------------------------------------------------------------
-# Input/output configuration
-#
-# These can later be moved completely into Django settings,
-# database models, or GeoServer/WCS sources.
-# ------------------------------------------------------------
-
 CONFIG = {
     "county_boundary": getattr(
         settings,
         "FLOOD_COUNTY_BOUNDARY",
-        r"C:\Users\HP\VIOML\TR_Flood_Hotspots_Mapping\TanaRiver_County.geojson",
-    ),
-
-    "dem_path": getattr(
-        settings,
-        "FLOOD_DEM_PATH",
-        r"C:\Users\HP\VIOML\TR_Flood_Hotspots_Mapping\TanaRiver_DEM.tif",
+        os.path.join(
+            BASE_DIR,
+            "media",
+            "flood_hotspots",
+            "geoserver_inputs",
+            "TanaRiver_County.geojson",
+        )
+        if BASE_DIR
+        else r"C:\sentinel-watch\hazard-backend\media\flood_hotspots\geoserver_inputs\TanaRiver_County.geojson",
     ),
 
     "rainfall_path": getattr(
         settings,
         "FLOOD_RAINFALL_PATH",
-        r"C:\Users\HP\VIOML\TR_Flood_Hotspots_Mapping\TanaRiver_Rainfall_2026.tif",
+        os.path.join(
+            BASE_DIR,
+            "media",
+            "flood_hotspots",
+            "geoserver_inputs",
+            "TanaRiver_Rainfall.tif",
+        )
+        if BASE_DIR
+        else r"C:\sentinel-watch\hazard-backend\media\flood_hotspots\geoserver_inputs\TanaRiver_Rainfall.tif",
     ),
 
     "landcover_path": getattr(
         settings,
         "FLOOD_LANDCOVER_PATH",
-        r"C:\Users\HP\VIOML\TR_Flood_Hotspots_Mapping\TanaRiver_ESA_WorldCover_2021.tif",
+        os.path.join(
+            BASE_DIR,
+            "media",
+            "flood_hotspots",
+            "geoserver_inputs",
+            "TanaRiver_LULC.tif",
+        )
+        if BASE_DIR
+        else r"C:\sentinel-watch\hazard-backend\media\flood_hotspots\geoserver_inputs\TanaRiver_LULC.tif",
     ),
 
     "river_path": getattr(
         settings,
         "FLOOD_RIVER_PATH",
-        r"C:\Users\HP\VIOML\TR_Flood_Hotspots_Mapping\TR_Rivers.geojson",
+        os.path.join(
+            BASE_DIR,
+            "media",
+            "flood_hotspots",
+            "geoserver_inputs",
+            "TR_Rivers.geojson",
+        )
+        if BASE_DIR
+        else r"C:\sentinel-watch\hazard-backend\media\flood_hotspots\geoserver_inputs\TR_Rivers.geojson",
     ),
 
     "out_dir": getattr(
         settings,
         "FLOOD_OUTPUT_DIR",
-        os.path.join(BASE_DIR, "media", "flood_hotspots")
+        os.path.join(
+            BASE_DIR,
+            "media",
+            "flood_hotspots",
+        )
         if BASE_DIR
         else r"C:\sentinel-watch\flood_outputs",
     ),
@@ -100,15 +124,38 @@ CONFIG = {
 
 
 # ============================================================
-# AHP WEIGHTS
+# AVAILABLE-INPUT WEIGHTS
+#
+# Original supplied weights:
+#
+# Elevation       = 0.25  -> unavailable
+# Slope           = 0.15  -> unavailable
+# Rainfall        = 0.20  -> available
+# Landcover       = 0.05  -> available
+# Distance River  = 0.35  -> available
+#
+# Available original weights sum to:
+#
+# 0.20 + 0.05 + 0.35 = 0.60
+#
+# They are normalized proportionally to sum to 1.0.
 # ============================================================
 
-WEIGHTS = {
-    "elevation": 0.25,
-    "slope": 0.15,
+ORIGINAL_WEIGHTS = {
     "dist_to_river": 0.35,
     "rainfall": 0.20,
     "landcover": 0.05,
+}
+
+
+AVAILABLE_WEIGHT_TOTAL = sum(
+    ORIGINAL_WEIGHTS.values()
+)
+
+
+WEIGHTS = {
+    name: weight / AVAILABLE_WEIGHT_TOTAL
+    for name, weight in ORIGINAL_WEIGHTS.items()
 }
 
 
@@ -125,11 +172,11 @@ LANDCOVER_RISK = {
     40: 5,    # Cropland
     50: 4,    # Built-up
     60: 5,    # Bare / sparse vegetation
-    70: 1,    # Snow/ice
+    70: 1,    # Snow / ice
     80: 5,    # Permanent water
     90: 5,    # Herbaceous wetland
     95: 3,    # Mangroves
-    100: 3,   # Moss/lichen
+    100: 3,   # Moss / lichen
 }
 
 
@@ -155,7 +202,10 @@ TOWNS = {
 # ============================================================
 
 def ensure_out_dir(path):
-    os.makedirs(path, exist_ok=True)
+    os.makedirs(
+        path,
+        exist_ok=True,
+    )
 
 
 def reproject_raster_to_match(
@@ -165,7 +215,8 @@ def reproject_raster_to_match(
     resampling=Resampling.bilinear,
 ):
     """
-    Reproject a raster so that it matches the reference raster grid.
+    Reproject a raster so that it matches
+    the reference raster grid.
     """
 
     with rasterio.open(src_path) as src:
@@ -188,7 +239,10 @@ def reproject_raster_to_match(
         )
 
         reproject(
-            source=rasterio.band(src, 1),
+            source=rasterio.band(
+                src,
+                1,
+            ),
             destination=out_arr,
             src_transform=src.transform,
             src_crs=src.crs,
@@ -203,7 +257,10 @@ def reproject_raster_to_match(
             **out_profile,
         ) as dst:
 
-            dst.write(out_arr, 1)
+            dst.write(
+                out_arr,
+                1,
+            )
 
     return out_path
 
@@ -217,9 +274,13 @@ def clip_raster_to_boundary(
     Clip raster to county boundary.
     """
 
-    with rasterio.open(raster_path) as src:
+    with rasterio.open(
+        raster_path
+    ) as src:
 
-        geoms = boundary_gdf.geometry.values
+        geoms = (
+            boundary_gdf.geometry.values
+        )
 
         out_image, out_transform = mask(
             src,
@@ -245,21 +306,32 @@ def clip_raster_to_boundary(
         ) as dst:
 
             dst.write(
-                out_image.astype("float32")
+                out_image.astype(
+                    "float32"
+                )
             )
 
     return out_path
 
 
-def print_data_range(name, arr):
+def print_data_range(
+    name,
+    arr,
+):
     """
     Print diagnostic statistics.
     """
 
-    valid = arr[~np.isnan(arr)]
+    valid = arr[
+        ~np.isnan(arr)
+    ]
 
     if valid.size == 0:
-        print(f"  [{name}] No valid data")
+
+        print(
+            f"  [{name}] No valid data"
+        )
+
         return
 
     print(
@@ -274,12 +346,18 @@ def print_data_range(name, arr):
     )
 
 
-def build_towns_gdf(towns_dict, target_crs):
+def build_towns_gdf(
+    towns_dict,
+    target_crs,
+):
     """
-    Convert town coordinates from WGS84 into target CRS.
+    Convert town coordinates from WGS84
+    into target CRS.
     """
 
-    names = list(towns_dict.keys())
+    names = list(
+        towns_dict.keys()
+    )
 
     lons = [
         value[0]
@@ -292,7 +370,9 @@ def build_towns_gdf(towns_dict, target_crs):
     ]
 
     gdf = gpd.GeoDataFrame(
-        {"name": names},
+        {
+            "name": names
+        },
         geometry=gpd.points_from_xy(
             lons,
             lats,
@@ -300,23 +380,32 @@ def build_towns_gdf(towns_dict, target_crs):
         crs="EPSG:4326",
     )
 
-    return gdf.to_crs(target_crs)
+    return gdf.to_crs(
+        target_crs
+    )
 
 
 # ============================================================
-# CLASSIFICATION METHODS
+# CLASSIFICATION
 # ============================================================
 
-def jenks_classify(arr, n_classes=5):
+def jenks_classify(
+    arr,
+    n_classes=5,
+):
     """
     Jenks Natural Breaks classification.
 
-    Uses up to 50,000 sampled valid pixels for performance.
+    Uses up to 50,000 sampled valid pixels
+    for performance.
     """
 
-    valid = arr[~np.isnan(arr)].flatten()
+    valid = arr[
+        ~np.isnan(arr)
+    ].flatten()
 
     if valid.size == 0:
+
         return np.full(
             arr.shape,
             np.nan,
@@ -324,6 +413,7 @@ def jenks_classify(arr, n_classes=5):
         )
 
     if valid.size < n_classes:
+
         raise ValueError(
             f"Not enough valid values for "
             f"{n_classes} Jenks classes."
@@ -347,100 +437,37 @@ def jenks_classify(arr, n_classes=5):
         dtype="float32",
     )
 
-    for i in range(n_classes):
+    for i in range(
+        n_classes
+    ):
 
         lo = breaks[i]
 
         hi = (
             breaks[i + 1]
-            + (1e-6 if i == n_classes - 1 else 0)
+            + (
+                1e-6
+                if i == n_classes - 1
+                else 0
+            )
         )
 
         classed[
-            (arr >= lo) &
+            (arr >= lo)
+            &
             (arr < hi)
         ] = i + 1
 
     return classed
 
 
-def classify_elevation_absolute(dem):
-    """
-    Elevation risk classification.
-
-    Lower elevation = higher flood risk.
-    """
-
-    risk = np.full(
-        dem.shape,
-        np.nan,
-        dtype="float32",
-    )
-
-    risk[dem <= 50] = 5
-
-    risk[
-        (dem > 50) &
-        (dem <= 150)
-    ] = 4
-
-    risk[
-        (dem > 150) &
-        (dem <= 300)
-    ] = 3
-
-    risk[
-        (dem > 300) &
-        (dem <= 500)
-    ] = 2
-
-    risk[dem > 500] = 1
-
-    risk[np.isnan(dem)] = np.nan
-
-    return risk
-
-
-def classify_slope_absolute(slope_deg):
-    """
-    Slope risk classification.
-
-    Flatter terrain = higher pooling risk.
-    """
-
-    risk = np.full(
-        slope_deg.shape,
-        np.nan,
-        dtype="float32",
-    )
-
-    risk[slope_deg <= 2] = 5
-
-    risk[
-        (slope_deg > 2) &
-        (slope_deg <= 5)
-    ] = 4
-
-    risk[
-        (slope_deg > 5) &
-        (slope_deg <= 10)
-    ] = 3
-
-    risk[
-        (slope_deg > 10) &
-        (slope_deg <= 20)
-    ] = 2
-
-    risk[slope_deg > 20] = 1
-
-    risk[np.isnan(slope_deg)] = np.nan
-
-    return risk
-
-
-def classify_distance_to_river_absolute(dist_metres):
+def classify_distance_to_river_absolute(
+    dist_metres,
+):
     """
     River proximity classification.
+
+    Closer to rivers = higher flood risk.
     """
 
     risk = np.full(
@@ -449,38 +476,51 @@ def classify_distance_to_river_absolute(dist_metres):
         dtype="float32",
     )
 
-    risk[dist_metres <= 1000] = 5
+    risk[
+        dist_metres <= 1000
+    ] = 5
 
     risk[
-        (dist_metres > 1000) &
+        (dist_metres > 1000)
+        &
         (dist_metres <= 3000)
     ] = 4
 
     risk[
-        (dist_metres > 3000) &
+        (dist_metres > 3000)
+        &
         (dist_metres <= 7000)
     ] = 3
 
     risk[
-        (dist_metres > 7000) &
+        (dist_metres > 7000)
+        &
         (dist_metres <= 15000)
     ] = 2
 
-    risk[dist_metres > 15000] = 1
+    risk[
+        dist_metres > 15000
+    ] = 1
 
     return risk
 
 
-def classify_rainfall_percentile(rain):
+def classify_rainfall_percentile(
+    rain,
+):
     """
     Percentile-based rainfall classification.
     """
 
-    valid = rain[~np.isnan(rain)]
+    valid = rain[
+        ~np.isnan(rain)
+    ]
 
     if valid.size == 0:
+
         raise ValueError(
-            "Rainfall raster contains no valid data."
+            "Rainfall raster contains "
+            "no valid data."
         )
 
     thresholds = np.percentile(
@@ -499,17 +539,20 @@ def classify_rainfall_percentile(rain):
     ] = 1
 
     risk[
-        (rain > thresholds[0]) &
+        (rain > thresholds[0])
+        &
         (rain <= thresholds[1])
     ] = 2
 
     risk[
-        (rain > thresholds[1]) &
+        (rain > thresholds[1])
+        &
         (rain <= thresholds[2])
     ] = 3
 
     risk[
-        (rain > thresholds[2]) &
+        (rain > thresholds[2])
+        &
         (rain <= thresholds[3])
     ] = 4
 
@@ -517,7 +560,9 @@ def classify_rainfall_percentile(rain):
         rain > thresholds[3]
     ] = 5
 
-    risk[np.isnan(rain)] = np.nan
+    risk[
+        np.isnan(rain)
+    ] = np.nan
 
     print(
         "  [rainfall] percentile thresholds "
@@ -525,7 +570,7 @@ def classify_rainfall_percentile(rain):
         f"{thresholds[0]:.1f} / "
         f"{thresholds[1]:.1f} / "
         f"{thresholds[2]:.1f} / "
-        f"{thresholds[3]:.1f} mm"
+        f"{thresholds[3]:.1f}"
     )
 
     return risk
@@ -535,28 +580,45 @@ def classify_rainfall_percentile(rain):
 # STEP 1 — REFERENCE GRID
 # ============================================================
 
-def build_reference_grid(config):
+def build_reference_grid(
+    config,
+):
     """
-    Build the common analysis grid from the DEM.
+    Build the common analysis grid from
+    the available rainfall raster.
+
+    DEM is intentionally not used.
     """
 
     boundary = (
         gpd.read_file(
-            config["county_boundary"]
+            config[
+                "county_boundary"
+            ]
         )
         .to_crs(
-            config["target_crs"]
+            config[
+                "target_crs"
+            ]
         )
     )
 
     with rasterio.open(
-        config["dem_path"]
+        config[
+            "rainfall_path"
+        ]
     ) as src:
+
+        from rasterio.warp import (
+            calculate_default_transform,
+        )
 
         transform, width, height = (
             calculate_default_transform(
                 src.crs,
-                config["target_crs"],
+                config[
+                    "target_crs"
+                ],
                 src.width,
                 src.height,
                 *src.bounds,
@@ -569,7 +631,9 @@ def build_reference_grid(config):
         ref_profile = src.profile.copy()
 
         ref_profile.update(
-            crs=config["target_crs"],
+            crs=config[
+                "target_crs"
+            ],
             transform=transform,
             width=width,
             height=height,
@@ -577,121 +641,14 @@ def build_reference_grid(config):
             nodata=np.nan,
         )
 
-    return boundary, ref_profile
-
-
-# ============================================================
-# STEP 2 — ELEVATION
-# ============================================================
-
-def process_elevation(
-    config,
-    ref_profile,
-    boundary,
-    out_dir,
-):
-
-    reproj_path = os.path.join(
-        out_dir,
-        "dem_reproj.tif",
-    )
-
-    reproject_raster_to_match(
-        config["dem_path"],
-        ref_profile,
-        reproj_path,
-    )
-
-    clipped_path = os.path.join(
-        out_dir,
-        "dem_clipped.tif",
-    )
-
-    clip_raster_to_boundary(
-        reproj_path,
+    return (
         boundary,
-        clipped_path,
+        ref_profile,
     )
-
-    with rasterio.open(
-        clipped_path
-    ) as src:
-
-        dem = src.read(1)
-        profile = src.profile
-
-    print_data_range(
-        "elevation (m)",
-        dem,
-    )
-
-    risk = classify_elevation_absolute(
-        dem
-    )
-
-    return dem, risk, profile
 
 
 # ============================================================
-# STEP 3 — SLOPE
-# ============================================================
-
-def compute_slope(
-    dem,
-    profile,
-):
-
-    px = profile["transform"][0]
-    py = -profile["transform"][4]
-
-    dzdx, dzdy = np.gradient(
-        dem,
-        px,
-        py,
-    )
-
-    slope_rad = np.arctan(
-        np.sqrt(
-            dzdx ** 2 +
-            dzdy ** 2
-        )
-    )
-
-    slope_deg = np.degrees(
-        slope_rad
-    )
-
-    slope_deg[
-        np.isnan(dem)
-    ] = np.nan
-
-    return slope_deg
-
-
-def process_slope(
-    dem,
-    profile,
-):
-
-    slope_deg = compute_slope(
-        dem,
-        profile,
-    )
-
-    print_data_range(
-        "slope (degrees)",
-        slope_deg,
-    )
-
-    risk = classify_slope_absolute(
-        slope_deg
-    )
-
-    return risk
-
-
-# ============================================================
-# STEP 4 — DISTANCE TO RIVER
+# STEP 2 — DISTANCE TO RIVER
 # ============================================================
 
 def process_distance_to_river(
@@ -700,10 +657,16 @@ def process_distance_to_river(
     boundary,
     out_dir,
 ):
+    """
+    Calculate distance from every analysis
+    pixel to the nearest river.
+    """
 
     rivers = (
         gpd.read_file(
-            config["river_path"]
+            config[
+                "river_path"
+            ]
         )
         .to_crs(
             ref_profile["crs"]
@@ -722,6 +685,7 @@ def process_distance_to_river(
     ]
 
     if not geometries:
+
         raise ValueError(
             "No river geometries were found "
             "inside the county boundary."
@@ -729,28 +693,42 @@ def process_distance_to_river(
 
     river_raster = rasterize(
         [
-            (geom, 1)
+            (
+                geom,
+                1,
+            )
             for geom in geometries
         ],
         out_shape=(
-            ref_profile["height"],
-            ref_profile["width"],
+            ref_profile[
+                "height"
+            ],
+            ref_profile[
+                "width"
+            ],
         ),
-        transform=ref_profile["transform"],
+        transform=ref_profile[
+            "transform"
+        ],
         fill=0,
         dtype="uint8",
     )
 
     pixel_size = (
-        ref_profile["transform"][0]
+        ref_profile[
+            "transform"
+        ][0]
     )
 
-    dist_pixels = distance_transform_edt(
-        river_raster == 0
+    dist_pixels = (
+        distance_transform_edt(
+            river_raster == 0
+        )
     )
 
     dist_metres = (
-        dist_pixels *
+        dist_pixels
+        *
         pixel_size
     )
 
@@ -776,15 +754,20 @@ def process_distance_to_river(
             dist_metres,
         )
 
-    risk = classify_distance_to_river_absolute(
-        dist_metres
+    risk = (
+        classify_distance_to_river_absolute(
+            dist_metres
+        )
     )
 
-    return dist_metres, risk
+    return (
+        dist_metres,
+        risk,
+    )
 
 
 # ============================================================
-# STEP 5 — RAINFALL
+# STEP 3 — RAINFALL
 # ============================================================
 
 def process_rainfall(
@@ -793,6 +776,9 @@ def process_rainfall(
     boundary,
     out_dir,
 ):
+    """
+    Reproject and clip rainfall.
+    """
 
     reproj_path = os.path.join(
         out_dir,
@@ -800,7 +786,9 @@ def process_rainfall(
     )
 
     reproject_raster_to_match(
-        config["rainfall_path"],
+        config[
+            "rainfall_path"
+        ],
         ref_profile,
         reproj_path,
     )
@@ -823,19 +811,21 @@ def process_rainfall(
         rain = src.read(1)
 
     print_data_range(
-        "rainfall (mm)",
+        "rainfall",
         rain,
     )
 
-    risk = classify_rainfall_percentile(
-        rain
+    risk = (
+        classify_rainfall_percentile(
+            rain
+        )
     )
 
     return risk
 
 
 # ============================================================
-# STEP 6 — LAND COVER
+# STEP 4 — LAND COVER
 # ============================================================
 
 def process_landcover(
@@ -844,6 +834,9 @@ def process_landcover(
     boundary,
     out_dir,
 ):
+    """
+    Reproject and clip ESA WorldCover.
+    """
 
     reproj_path = os.path.join(
         out_dir,
@@ -851,7 +844,9 @@ def process_landcover(
     )
 
     reproject_raster_to_match(
-        config["landcover_path"],
+        config[
+            "landcover_path"
+        ],
         ref_profile,
         reproj_path,
         resampling=Resampling.nearest,
@@ -880,7 +875,9 @@ def process_landcover(
         dtype="float32",
     )
 
-    for code, score in LANDCOVER_RISK.items():
+    for code, score in (
+        LANDCOVER_RISK.items()
+    ):
 
         risk[
             lc == code
@@ -890,16 +887,26 @@ def process_landcover(
 
 
 # ============================================================
-# STEP 7 — WEIGHTED OVERLAY
+# STEP 5 — WEIGHTED OVERLAY
 # ============================================================
 
 def compute_flood_hotspot_index(
     factor_risks,
     weights,
 ):
+    """
+    Calculate Flood Hotspot Index using
+    only the available factors.
+    """
+
+    first_factor = next(
+        iter(
+            factor_risks.values()
+        )
+    )
 
     fhi = np.zeros_like(
-        factor_risks["elevation"],
+        first_factor,
         dtype="float32",
     )
 
@@ -908,10 +915,21 @@ def compute_flood_hotspot_index(
         dtype=bool,
     )
 
-    for name, risk_arr in factor_risks.items():
+    for name, risk_arr in (
+        factor_risks.items()
+    ):
 
-        valid_mask &= ~np.isnan(
-            risk_arr
+        if name not in weights:
+
+            raise ValueError(
+                f"No weight configured "
+                f"for factor '{name}'."
+            )
+
+        valid_mask &= (
+            ~np.isnan(
+                risk_arr
+            )
         )
 
         fhi += (
@@ -930,8 +948,9 @@ def compute_flood_hotspot_index(
     return fhi
 
 
-def classify_fhi(fhi):
-
+def classify_fhi(
+    fhi,
+):
     labels = [
         "Very Low",
         "Low",
@@ -950,11 +969,14 @@ def classify_fhi(fhi):
         n_classes=5,
     )
 
-    return classes, labels
+    return (
+        classes,
+        labels,
+    )
 
 
 # ============================================================
-# STEP 8 — RASTER EXPORT
+# STEP 6 — RASTER EXPORT
 # ============================================================
 
 def export_raster(
@@ -962,7 +984,6 @@ def export_raster(
     profile,
     out_path,
 ):
-
     out_profile = profile.copy()
 
     out_profile.update(
@@ -978,7 +999,9 @@ def export_raster(
     ) as dst:
 
         dst.write(
-            arr.astype("float32"),
+            arr.astype(
+                "float32"
+            ),
             1,
         )
 
@@ -986,7 +1009,7 @@ def export_raster(
 
 
 # ============================================================
-# STEP 9 — FACTOR DIAGNOSTIC MAP
+# STEP 7 — FACTOR DIAGNOSTIC MAP
 # ============================================================
 
 def plot_factor_diagnostic(
@@ -994,8 +1017,9 @@ def plot_factor_diagnostic(
     profile,
     out_dir,
 ):
-
-    t = profile["transform"]
+    t = profile[
+        "transform"
+    ]
 
     h, w = next(
         iter(
@@ -1010,7 +1034,9 @@ def plot_factor_diagnostic(
         t.f,
     ]
 
-    n = len(factor_risks)
+    n = len(
+        factor_risks
+    )
 
     ncols = 3
 
@@ -1102,39 +1128,42 @@ def draw_scale_bar(
     bar_height_frac=0.012,
     fontsize=9,
 ):
-
     xlim = ax.get_xlim()
     ylim = ax.get_ylim()
 
     x_range = (
-        xlim[1] -
-        xlim[0]
+        xlim[1] - xlim[0]
     )
 
     y_range = (
-        ylim[1] -
-        ylim[0]
+        ylim[1] - ylim[0]
     )
 
     x0 = (
-        xlim[0] +
-        location[0] *
+        xlim[0]
+        +
+        location[0]
+        *
         x_range
     )
 
     y0 = (
-        ylim[0] +
-        location[1] *
+        ylim[0]
+        +
+        location[1]
+        *
         y_range
     )
 
     bar_height = (
-        bar_height_frac *
+        bar_height_frac
+        *
         y_range
     )
 
     seg_length = (
-        length_m /
+        length_m
+        /
         n_divisions
     )
 
@@ -1150,8 +1179,10 @@ def draw_scale_bar(
 
         rect = mpatches.Rectangle(
             (
-                x0 +
-                i *
+                x0
+                +
+                i
+                *
                 seg_length,
                 y0,
             ),
@@ -1163,10 +1194,15 @@ def draw_scale_bar(
             zorder=10,
         )
 
-        ax.add_patch(rect)
+        ax.add_patch(
+            rect
+        )
 
     border = mpatches.Rectangle(
-        (x0, y0),
+        (
+            x0,
+            y0,
+        ),
         length_m,
         bar_height,
         facecolor="none",
@@ -1175,15 +1211,19 @@ def draw_scale_bar(
         zorder=11,
     )
 
-    ax.add_patch(border)
+    ax.add_patch(
+        border
+    )
 
     for i in range(
         n_divisions + 1
     ):
 
         label_val_km = (
-            seg_length *
-            i /
+            seg_length
+            *
+            i
+            /
             1000
         )
 
@@ -1194,11 +1234,15 @@ def draw_scale_bar(
         )
 
         ax.text(
-            x0 +
-            i *
+            x0
+            +
+            i
+            *
             seg_length,
-            y0 +
-            bar_height *
+            y0
+            +
+            bar_height
+            *
             1.8,
             label,
             ha="center",
@@ -1208,10 +1252,13 @@ def draw_scale_bar(
         )
 
     ax.text(
-        x0 +
+        x0
+        +
         length_m / 2,
-        y0 -
-        bar_height *
+        y0
+        -
+        bar_height
+        *
         2.2,
         "km",
         ha="center",
@@ -1234,7 +1281,6 @@ def plot_hotspot_map(
     out_path,
     title,
 ):
-
     fig, ax = plt.subplots(
         figsize=(12, 12)
     )
@@ -1263,7 +1309,9 @@ def plot_hotspot_map(
         cmap.N,
     )
 
-    t = profile["transform"]
+    t = profile[
+        "transform"
+    ]
 
     h, w = classes.shape
 
@@ -1290,10 +1338,6 @@ def plot_hotspot_map(
         zorder=3,
     )
 
-    # --------------------------------------------------------
-    # Basemap
-    # --------------------------------------------------------
-
     try:
 
         cx.add_basemap(
@@ -1311,14 +1355,8 @@ def plot_hotspot_map(
 
         print(
             "  [warning] Basemap could "
-            f"not be added ({e}). "
-            "Check internet access / "
-            "contextily installation."
+            f"not be added ({e})."
         )
-
-    # --------------------------------------------------------
-    # Towns
-    # --------------------------------------------------------
 
     if (
         towns_gdf is not None
@@ -1335,7 +1373,9 @@ def plot_hotspot_map(
             zorder=4,
         )
 
-        for _, row in towns_gdf.iterrows():
+        for _, row in (
+            towns_gdf.iterrows()
+        ):
 
             ax.annotate(
                 row["name"],
@@ -1401,17 +1441,20 @@ def plot_hotspot_map(
     # --------------------------------------------------------
 
     map_width_m = (
-        extent[1] -
+        extent[1]
+        -
         extent[0]
     )
 
     raw_length = (
-        map_width_m *
+        map_width_m
+        *
         0.25
     )
 
     magnitude = (
-        10 **
+        10
+        **
         np.floor(
             np.log10(
                 raw_length
@@ -1421,7 +1464,8 @@ def plot_hotspot_map(
 
     scale_length_m = (
         round(
-            raw_length /
+            raw_length
+            /
             magnitude
         )
         *
@@ -1439,7 +1483,9 @@ def plot_hotspot_map(
     # Map Border
     # --------------------------------------------------------
 
-    for spine in ax.spines.values():
+    for spine in (
+        ax.spines.values()
+    ):
 
         spine.set_edgecolor(
             "black"
@@ -1473,10 +1519,6 @@ def plot_hotspot_map(
         title_fontsize=11,
         framealpha=0.9,
     )
-
-    # --------------------------------------------------------
-    # Titles / Labels
-    # --------------------------------------------------------
 
     ax.set_title(
         title,
@@ -1528,21 +1570,17 @@ def run_flood_hotspot(
     """
     Main Django-callable flood hotspot calculation.
 
-    Returns a dictionary containing:
+    Uses ONLY the currently available datasets:
 
-        {
-            "fhi": ...,
-            "classes": ...,
-            "labels": ...,
-            "profile": ...,
-            "boundary": ...,
-            "towns": ...,
-            "outputs": {...},
-            "summary": [...]
-        }
+        1. Distance to River
+        2. Rainfall
+        3. Landcover
 
-    The actual calculation logic remains the same as the
-    original standalone script.
+    The original supplied weights for these available
+    parameters are preserved proportionally and normalized.
+
+    Elevation and slope are intentionally excluded because
+    their DEM source is not available.
     """
 
     config = config or CONFIG
@@ -1561,10 +1599,27 @@ def run_flood_hotspot(
         1.0,
         atol=1e-6,
     ):
+
         raise ValueError(
-            "Flood hotspot AHP weights "
-            f"must sum to 1.0. "
+            "Flood hotspot weights "
+            "must sum to 1.0. "
             f"Current sum: {weight_sum}"
+        )
+
+    expected_factors = {
+        "dist_to_river",
+        "rainfall",
+        "landcover",
+    }
+
+    if set(
+        weights.keys()
+    ) != expected_factors:
+
+        raise ValueError(
+            "Flood hotspot weights must "
+            "contain exactly: "
+            "dist_to_river, rainfall, landcover."
         )
 
     # --------------------------------------------------------
@@ -1574,9 +1629,6 @@ def run_flood_hotspot(
     required_files = {
         "county_boundary": config[
             "county_boundary"
-        ],
-        "dem_path": config[
-            "dem_path"
         ],
         "rainfall_path": config[
             "rainfall_path"
@@ -1589,9 +1641,13 @@ def run_flood_hotspot(
         ],
     }
 
-    for name, path in required_files.items():
+    for name, path in (
+        required_files.items()
+    ):
 
-        if not os.path.exists(path):
+        if not os.path.exists(
+            path
+        ):
 
             raise FileNotFoundError(
                 f"Required flood hotspot input "
@@ -1603,7 +1659,9 @@ def run_flood_hotspot(
     # --------------------------------------------------------
 
     ensure_out_dir(
-        config["out_dir"]
+        config[
+            "out_dir"
+        ]
     )
 
     out_dir = config[
@@ -1622,12 +1680,39 @@ def run_flood_hotspot(
         "============================================================"
     )
 
+    print(
+        "\nUsing available flood inputs only:"
+    )
+
+    print(
+        f"  Distance to River : "
+        f"{weights['dist_to_river']:.6f}"
+    )
+
+    print(
+        f"  Rainfall          : "
+        f"{weights['rainfall']:.6f}"
+    )
+
+    print(
+        f"  Landcover         : "
+        f"{weights['landcover']:.6f}"
+    )
+
+    print(
+        "\n  Elevation         : EXCLUDED"
+    )
+
+    print(
+        "  Slope             : EXCLUDED"
+    )
+
     # --------------------------------------------------------
     # Step 1 — Reference grid
     # --------------------------------------------------------
 
     print(
-        "\n── Step 1: Building reference grid from DEM ──"
+        "\n── Step 1: Building reference grid ──"
     )
 
     boundary, ref_profile = (
@@ -1637,15 +1722,15 @@ def run_flood_hotspot(
     )
 
     # --------------------------------------------------------
-    # Step 2 — Elevation
+    # Step 2 — Distance to river
     # --------------------------------------------------------
 
     print(
-        "\n── Step 2: Processing elevation ──"
+        "\n── Step 2: Distance to river ──"
     )
 
-    dem, elev_risk, dem_profile = (
-        process_elevation(
+    _, dist_risk = (
+        process_distance_to_river(
             config,
             ref_profile,
             boundary,
@@ -1654,126 +1739,104 @@ def run_flood_hotspot(
     )
 
     # --------------------------------------------------------
-    # Step 3 — Slope
+    # Step 3 — Rainfall
     # --------------------------------------------------------
 
     print(
-        "\n── Step 3: Computing slope ──"
+        "\n── Step 3: Rainfall ──"
     )
 
-    slope_risk = process_slope(
-        dem,
-        dem_profile,
-    )
-
-    # --------------------------------------------------------
-    # Step 4 — Distance to river
-    # --------------------------------------------------------
-
-    print(
-        "\n── Step 4: Distance to river ──"
-    )
-
-    _, dist_risk = (
-        process_distance_to_river(
+    rain_risk = (
+        process_rainfall(
             config,
-            dem_profile,
+            ref_profile,
             boundary,
             out_dir,
         )
     )
 
     # --------------------------------------------------------
-    # Step 5 — Rainfall
+    # Step 4 — Land cover
     # --------------------------------------------------------
 
     print(
-        "\n── Step 5: Rainfall ──"
+        "\n── Step 4: Land cover ──"
     )
 
-    rain_risk = process_rainfall(
-        config,
-        dem_profile,
-        boundary,
-        out_dir,
-    )
-
-    # --------------------------------------------------------
-    # Step 6 — Land cover
-    # --------------------------------------------------------
-
-    print(
-        "\n── Step 6: Land cover ──"
-    )
-
-    lc_risk = process_landcover(
-        config,
-        dem_profile,
-        boundary,
-        out_dir,
-    )
-
-    # --------------------------------------------------------
-    # Step 7 — Weighted overlay
-    # --------------------------------------------------------
-
-    print(
-        "\n── Step 7: Weighted overlay → "
-        "Flood Hotspot Index ──"
-    )
-
-    factor_risks = {
-        "elevation": elev_risk,
-        "slope": slope_risk,
-        "dist_to_river": dist_risk,
-        "rainfall": rain_risk,
-        "landcover": lc_risk,
-    }
-
-    fhi = compute_flood_hotspot_index(
-        factor_risks,
-        weights,
-    )
-
-    classes, labels = classify_fhi(
-        fhi
-    )
-
-    # --------------------------------------------------------
-    # Step 7b — Diagnostics
-    # --------------------------------------------------------
-
-    print(
-        "\n── Step 7b: Per-factor diagnostic plot ──"
-    )
-
-    diagnostic_path = (
-        plot_factor_diagnostic(
-            factor_risks,
-            dem_profile,
+    lc_risk = (
+        process_landcover(
+            config,
+            ref_profile,
+            boundary,
             out_dir,
         )
     )
 
     # --------------------------------------------------------
-    # Step 8 — Towns
+    # Step 5 — Weighted overlay
     # --------------------------------------------------------
 
     print(
-        "\n── Step 8: Preparing town labels ──"
+        "\n── Step 5: Weighted overlay → "
+        "Flood Hotspot Index ──"
     )
 
-    towns_gdf = build_towns_gdf(
-        TOWNS,
-        dem_profile["crs"],
+    factor_risks = {
+        "dist_to_river": dist_risk,
+        "rainfall": rain_risk,
+        "landcover": lc_risk,
+    }
+
+    fhi = (
+        compute_flood_hotspot_index(
+            factor_risks,
+            weights,
+        )
+    )
+
+    classes, labels = (
+        classify_fhi(
+            fhi
+        )
     )
 
     # --------------------------------------------------------
-    # Step 9 — Export outputs
+    # Step 5b — Diagnostics
     # --------------------------------------------------------
 
     print(
-        "\n── Step 9: Exporting outputs ──"
+        "\n── Step 5b: Per-factor diagnostic plot ──"
+    )
+
+    diagnostic_path = (
+        plot_factor_diagnostic(
+            factor_risks,
+            ref_profile,
+            out_dir,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Step 6 — Towns
+    # --------------------------------------------------------
+
+    print(
+        "\n── Step 6: Preparing town labels ──"
+    )
+
+    towns_gdf = (
+        build_towns_gdf(
+            TOWNS,
+            ref_profile["crs"],
+        )
+    )
+
+    # --------------------------------------------------------
+    # Step 7 — Export outputs
+    # --------------------------------------------------------
+
+    print(
+        "\n── Step 7: Exporting outputs ──"
     )
 
     fhi_path = os.path.join(
@@ -1793,20 +1856,20 @@ def run_flood_hotspot(
 
     export_raster(
         fhi,
-        dem_profile,
+        ref_profile,
         fhi_path,
     )
 
     export_raster(
         classes,
-        dem_profile,
+        ref_profile,
         classes_path,
     )
 
     plot_hotspot_map(
         classes,
         labels,
-        dem_profile,
+        ref_profile,
         boundary,
         towns_gdf,
         map_path,
@@ -1837,29 +1900,39 @@ def run_flood_hotspot(
         )
 
         area_km2 = (
-            count *
+            count
+            *
             (
                 config[
                     "target_resolution"
-                ] ** 2
+                ]
+                **
+                2
             )
             /
             1e6
         )
 
         if total_valid > 0:
+
             pct = (
-                100 *
-                count /
+                100
+                *
+                count
+                /
                 total_valid
             )
+
         else:
+
             pct = 0
 
         item = {
             "class": i,
             "label": label,
-            "pixel_count": int(count),
+            "pixel_count": int(
+                count
+            ),
             "area_km2": float(
                 area_km2
             ),
@@ -1868,7 +1941,9 @@ def run_flood_hotspot(
             ),
         }
 
-        summary.append(item)
+        summary.append(
+            item
+        )
 
         print(
             f"  {label:<12}: "
@@ -1877,14 +1952,14 @@ def run_flood_hotspot(
         )
 
     # --------------------------------------------------------
-    # Result object for Django/API layer
+    # Result object
     # --------------------------------------------------------
 
     result = {
         "fhi": fhi,
         "classes": classes,
         "labels": labels,
-        "profile": dem_profile,
+        "profile": ref_profile,
         "boundary": boundary,
         "towns": towns_gdf,
 
@@ -1898,6 +1973,13 @@ def run_flood_hotspot(
         "summary": summary,
 
         "weights": weights,
+
+        "original_weights": ORIGINAL_WEIGHTS,
+
+        "excluded_factors": [
+            "elevation",
+            "slope",
+        ],
 
         "config": config,
     }
