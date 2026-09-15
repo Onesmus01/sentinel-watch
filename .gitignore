@@ -1,38 +1,23 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Environment
+.env
+*.env
 
-node_modules
-dist
-dist-ssr
-.output
-.vinxi
-.tanstack/**
-.nitro
-*.local
+# Python
+__pycache__/
+*.py[cod]
+*.class
 
-# Wrangler / Cloudflare
-.wrangler/
-.dev.vars
+# Django
+db.sqlite3
+media/
+staticfiles/
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Virtual environment
+venv/
+.venv/
 
-# bun.lock is this repo's lockfile (see bunfig.toml's minimumReleaseAge guard).
-# A second lockfile from npm/yarn/pnpm drifts from it and bypasses that guard.
+# Node
+node_modules/
 package-lock.json
-yarn.lock
-pnpm-lock.yaml
+
+hazard-backend/media_flood_hotspots.tif
