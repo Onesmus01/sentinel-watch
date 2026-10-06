@@ -1,11 +1,12 @@
+
 from django.urls import path
 
 from .views import (
     CountyDetailView,
-    CountyListView,
     CountyTownsView,
     TownDetailView,
     TownListView,
+    geoserver_counties,
 )
 
 
@@ -13,7 +14,7 @@ urlpatterns = [
     # Counties
     path(
         "counties/",
-        CountyListView.as_view(),
+        geoserver_counties,
         name="county-list",
     ),
 

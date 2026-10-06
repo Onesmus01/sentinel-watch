@@ -166,17 +166,12 @@ WEIGHTS = {
 # ============================================================
 
 LANDCOVER_RISK = {
-    10: 1,    # Tree cover
-    20: 2,    # Shrubland
-    30: 3,    # Grassland
-    40: 5,    # Cropland
-    50: 4,    # Built-up
-    60: 5,    # Bare / sparse vegetation
-    70: 1,    # Snow / ice
-    80: 5,    # Permanent water
-    90: 5,    # Herbaceous wetland
-    95: 3,    # Mangroves
-    100: 3,   # Moss / lichen
+    1: 1,
+    2: 5,
+    3: 4,
+    4: 2,
+    5: 5,
+    6: 3,
 }
 
 

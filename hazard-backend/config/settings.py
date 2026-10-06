@@ -1,4 +1,4 @@
-
+﻿
 from pathlib import Path
 import os
 
@@ -123,7 +123,7 @@ ASGI_APPLICATION = "config.asgi.application"
 
 
 # ============================================================
-# DATABASE — POSTGIS
+# DATABASE ΓÇö POSTGIS
 # ============================================================
 
 DATABASES = {
@@ -262,28 +262,88 @@ GEOSERVER_PASSWORD = os.getenv(
 
 
 # ============================================================
+# ============================================================
 # GEO DJANGO — WINDOWS GIS LIBRARIES
 # ============================================================
-
-# OSGeo4W installation verified at:
-# C:\Users\onesm\AppData\Local\Programs\OSGeo4W
 #
-# Verified GDAL:
-# GDAL 3.13.3
+# QGIS 3.40.2 provides the native GIS libraries used by
+# GeoDjango:
 #
-# These native DLLs are required by GeoDjango.
+# - GDAL 3.9.3
+# - GEOS
+# - PROJ
+#
+# PostgreSQL 18 / PostGIS 3.6.2 provides the spatial database.
+#
+# PostgreSQL 16 is intentionally NOT used.
+#
+# QGIS installation:
+# C:\Program Files\QGIS 3.40.2
+#
+# PostgreSQL installation:
+# C:\Program Files\PostgreSQL\18
+#
+# Python environment:
+# .venv-new
+#
+# IMPORTANT:
+# Rasterio and pyproj installed in .venv-new have their own
+# compatible PROJ installation.
+#
+# We intentionally DO NOT override PROJ_LIB or PROJ_DATA with
+# the QGIS proj.db.
+#
+# ============================================================
 
-OSGEO4W_BIN = (
-    r"C:\Users\onesm\AppData\Local\Programs\OSGeo4W\bin"
+
+# ============================================================
+# QGIS / POSTGRESQL ROOT DIRECTORIES
+# ============================================================
+
+QGIS_ROOT = r"C:\Program Files\QGIS 3.40.2"
+
+QGIS_BIN = os.path.join(
+    QGIS_ROOT,
+    "bin",
 )
+
+POSTGRES_ROOT = r"C:\Program Files\PostgreSQL\18"
+
+POSTGRES_BIN = os.path.join(
+    POSTGRES_ROOT,
+    "bin",
+)
+
+
+# ============================================================
+# GDAL
+# ============================================================
+#
+# QGIS 3.40.2 provides the native GDAL library used by
+# GeoDjango for raster and vector operations.
+#
+# Verified DLL:
+# C:\Program Files\QGIS 3.40.2\bin\gdal309.dll
+#
+# ============================================================
 
 GDAL_LIBRARY_PATH = os.path.join(
-    OSGEO4W_BIN,
-    "gdal313.dll",
+    QGIS_BIN,
+    "gdal309.dll",
 )
 
+
+# ============================================================
+# GEOS
+# ============================================================
+#
+# QGIS 3.40.2 provides the GEOS native library used by
+# GeoDjango for geometry operations.
+#
+# ============================================================
+
 GEOS_LIBRARY_PATH = os.path.join(
-    OSGEO4W_BIN,
+    QGIS_BIN,
     "geos_c.dll",
 )
 
@@ -291,38 +351,91 @@ GEOS_LIBRARY_PATH = os.path.join(
 # ============================================================
 # PROJ
 # ============================================================
-
-# PROJ is used by GDAL/GeoPandas/Rasterio for coordinate
-# reference systems and CRS transformations.
+#
+# QGIS 3.40.2 contains its own PROJ installation and proj.db.
+#
+# IMPORTANT:
+#
+# DO NOT execute:
+#
+# os.environ["PROJ_LIB"] = PROJ_LIB
+# os.environ["PROJ_DATA"] = PROJ_LIB
+#
+# Rasterio and pyproj in .venv-new use their own compatible
+# PROJ installation (PROJ 9.8.1).
+#
+# Forcing QGIS's proj.db into the Python process causes a
+# PROJ database-version conflict.
+#
+# Therefore PROJ_LIB below is ONLY a reference path.
+# It is NOT injected into the environment.
+#
+# ============================================================
 
 PROJ_LIB = os.path.join(
-    OSGEO4W_BIN,
+    QGIS_ROOT,
+    "share",
     "proj",
 )
 
-os.environ.setdefault(
-    "PROJ_LIB",
-    PROJ_LIB,
-)
 
-# Make OSGeo4W native libraries available to Python processes.
+# ============================================================
+# GIS NATIVE LIBRARY PATH
+# ============================================================
+#
+# Put QGIS first so GeoDjango can resolve the native GDAL,
+# GEOS and related GIS libraries from QGIS.
+#
+# PostgreSQL 18 follows so PostgreSQL client tools can be
+# located when required.
+#
+# IMPORTANT:
+# This changes PATH only.
+# It does NOT change PROJ_LIB or PROJ_DATA.
+#
+# ============================================================
+
 os.environ["PATH"] = (
-    OSGEO4W_BIN
+    QGIS_BIN
+    + os.pathsep
+    + POSTGRES_BIN
     + os.pathsep
     + os.environ.get("PATH", "")
 )
 
 
 # ============================================================
-# GIS ENVIRONMENT
+# GIS ENVIRONMENT NOTES
 # ============================================================
-
-# OSGeo4W provides the native:
+#
+# QGIS 3.40.2 provides:
+#
 # - GDAL
 # - GEOS
 # - PROJ
 #
-# PostgreSQL/PostGIS handles database-side spatial operations.
+# PostgreSQL 18 / PostGIS 3.6.2 provides:
 #
-# GeoDjango provides Django-side spatial models and operations.
-# Rasterio/GeoPandas will use the same native GIS ecosystem.
+# - PostgreSQL database
+# - PostGIS spatial database extension
+#
+# GeoDjango provides:
+#
+# - Spatial models
+# - Geometry operations
+# - Raster/vector integration
+# - PostGIS database integration
+#
+# Rasterio and pyproj use their own compatible Python GIS
+# dependencies.
+#
+# Their PROJ environment must NOT be overridden by the
+# QGIS proj.db.
+#
+# This prevents conflicts between:
+#
+# - QGIS PROJ
+# - PostgreSQL/PostGIS PROJ
+# - Python Rasterio/pyproj PROJ
+#
+# ============================================================
