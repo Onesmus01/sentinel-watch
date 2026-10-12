@@ -6,18 +6,41 @@ from .views import (
     CountyTownsView,
     TownDetailView,
     TownListView,
+    geoserver_boundary,
     geoserver_counties,
+    geoserver_subcounties,
+    geoserver_wards,
 )
 
 
 urlpatterns = [
-    # Counties
+    # Administrative boundaries from GeoServer
     path(
         "counties/",
         geoserver_counties,
         name="county-list",
     ),
 
+    path(
+        "subcounties/",
+        geoserver_subcounties,
+        name="subcounty-list",
+    ),
+
+    path(
+        "wards/",
+        geoserver_wards,
+        name="ward-list",
+    ),
+
+    # Real GeoJSON boundaries for map zooming
+    path(
+        "boundaries/",
+        geoserver_boundary,
+        name="administrative-boundaries",
+    ),
+
+    # County details and towns
     path(
         "counties/<int:pk>/",
         CountyDetailView.as_view(),

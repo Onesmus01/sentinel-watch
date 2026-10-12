@@ -1,9 +1,16 @@
+
 export interface FloodSummaryItem {
   class: number;
   label: "Very Low" | "Low" | "Moderate" | "High" | "Very High";
   pixel_count: number;
   area_km2: number;
   percentage: number;
+}
+
+export interface FloodWeights {
+  dist_to_river: number;
+  rainfall: number;
+  landcover: number;
 }
 
 export interface FloodApiResponse {
@@ -17,13 +24,7 @@ export interface FloodApiResponse {
 
   calculation?: {
     summary: FloodSummaryItem[];
-
-    weights: {
-      dist_to_river: number;
-      rainfall: number;
-      landcover: number;
-    };
-
+    weights: FloodWeights;
     outputs: {
       fhi_raster: string;
       classes_raster: string;
@@ -36,16 +37,20 @@ export interface FloodApiResponse {
   details?: string;
 }
 
-export async function getFloodAnalysis(): Promise<FloodApiResponse> {
-  const response = await fetch(
-    "http://127.0.0.1:8000/api/calculations/flood/",
-    {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
+const FLOOD_API_URL =
+  "http://127.0.0.1:8000/api/calculations/flood/";
+
+export async function getFloodAnalysis(
+  weights?: FloodWeights,
+): Promise<FloodApiResponse> {
+  const response = await fetch(FLOOD_API_URL, {
+    method: weights ? "POST" : "GET",
+    headers: {
+      Accept: "application/json",
+      ...(weights ? { "Content-Type": "application/json" } : {}),
     },
-  );
+    ...(weights ? { body: JSON.stringify({ weights }) } : {}),
+  });
 
   const data = (await response.json()) as FloodApiResponse;
 
