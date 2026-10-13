@@ -14,11 +14,24 @@ import {
 import {
   getFloodAnalysis,
   type FloodApiResponse,
+  type FloodWeights,
 } from "@/lib/flood_api";
 
 export type RunStatus = "idle" | "running" | "done" | "error";
 
 const DJANGO_API_URL = "http://127.0.0.1:8000";
+
+/**
+ * The calculator stores and displays percentages.
+ * These defaults total exactly 100%.
+ */
+const DEFAULT_FLOOD_WEIGHTS: FloodWeights = {
+  dist_to_river: 58.33,
+  rainfall: 33.33,
+  landcover: 8.34,
+};
+
+const FLOOD_WEIGHT_TOLERANCE = 0.01;
 
 export interface GeoServerCounty {
   name: string;
@@ -67,7 +80,18 @@ async function fetchLocationItems<T>(
     signal,
   });
 
-  const data = (await response.json()) as ApiResponse<T>;
+  const responseText = await response.text();
+
+  let data: ApiResponse<T>;
+
+  try {
+    data = JSON.parse(responseText) as ApiResponse<T>;
+  } catch {
+    throw new Error(
+      `Location API returned a non-JSON response (HTTP ${response.status}). ` +
+        responseText.slice(0, 300),
+    );
+  }
 
   if (!response.ok) {
     throw new Error(
@@ -84,10 +108,14 @@ async function fetchLocationItems<T>(
   return data.results;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function useHazardModel() {
   const [query, setQuery] = useState("");
 
-  // Administrative locations loaded from Django and GeoServer.
+  // Administrative locations.
   const [counties, setCounties] = useState<GeoServerCounty[]>([]);
   const [countiesLoading, setCountiesLoading] = useState(true);
   const [countiesError, setCountiesError] = useState<string | null>(null);
@@ -108,10 +136,14 @@ export function useHazardModel() {
   // Hazard selection.
   const [hazard, setHazardState] = useState<HazardId>("flood");
 
-  // Existing parameter controls.
+  // Legacy parameters for drought and landslide.
   const [selected, setSelected] = useState<ParameterId[]>([]);
   const [parameters, setParameters] =
     useState<ParameterValues>(DEFAULT_PARAMETERS);
+
+  // Flood weights are stored as percentages, not fractions.
+  const [floodWeights, setFloodWeights] =
+    useState<FloodWeights>({ ...DEFAULT_FLOOD_WEIGHTS });
 
   // Analysis state.
   const [status, setStatus] = useState<RunStatus>("idle");
@@ -182,9 +214,7 @@ export function useHazardModel() {
         setCounty("");
 
         setCountiesError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load counties from the backend.",
+          getErrorMessage(err, "Unable to load counties from the backend."),
         );
       } finally {
         if (!controller.signal.aborted) {
@@ -200,10 +230,6 @@ export function useHazardModel() {
 
   /*
    * Load sub-counties and wards for the selected county.
-   *
-   * Important: the ward layer exposes a constituency field, not a
-   * verified sub-county relationship. Do not treat constituency names
-   * as sub-county names. Load the county's wards without that assumption.
    */
   useEffect(() => {
     if (!county) {
@@ -257,9 +283,7 @@ export function useHazardModel() {
         setSubCounty("all");
 
         setSubCountiesError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load sub-counties.",
+          getErrorMessage(err, "Unable to load sub-counties."),
         );
       } finally {
         if (!controller.signal.aborted) {
@@ -302,11 +326,7 @@ export function useHazardModel() {
         setWardItems([]);
         setWard("all");
 
-        setWardsError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load wards.",
-        );
+        setWardsError(getErrorMessage(err, "Unable to load wards."));
       } finally {
         if (!controller.signal.aborted) {
           setWardsLoading(false);
@@ -338,18 +358,13 @@ export function useHazardModel() {
     [subCountyItems],
   );
 
-  /*
-   * Ward names are kept as the actual names returned by Django.
-   * The list is county-scoped because the current ward data does not
-   * establish a reliable sub-county-to-ward mapping.
-   */
   const wards = useMemo(
     () => wardItems.map((item) => item.name),
     [wardItems],
   );
 
   /*
-   * Applicable analysis parameters.
+   * Applicable legacy parameters.
    */
   const applicable = useMemo(
     () => applicableParameters(hazard),
@@ -366,12 +381,32 @@ export function useHazardModel() {
     [selected, applicable],
   );
 
+  /*
+   * Validate the flood weights as percentages.
+   */
+  const floodWeightsTotal =
+    floodWeights.dist_to_river +
+    floodWeights.rainfall +
+    floodWeights.landcover;
+
+  const floodWeightsValid =
+    Object.values(floodWeights).every(
+      (value) =>
+        Number.isFinite(value) &&
+        value >= 0 &&
+        value <= 100,
+    ) &&
+    Math.abs(floodWeightsTotal - 100) <= FLOOD_WEIGHT_TOLERANCE;
+
+  /*
+   * Flood calculation uses the backend's configured GIS area.
+   * County loading is not a prerequisite for enabling this button.
+   */
   const canRun =
-    hazard === "flood"
-      ? !countiesLoading &&
-        counties.length > 0 &&
-        status !== "running"
-      : activeCriteria.length > 0 && status !== "running";
+    status !== "running" &&
+    (hazard === "flood"
+      ? floodWeightsValid
+      : Boolean(county) && activeCriteria.length > 0);
 
   const usesDefaults = useMemo(
     () =>
@@ -382,7 +417,7 @@ export function useHazardModel() {
   );
 
   /*
-   * Location selection.
+   * Location controls.
    */
   const selectCounty = useCallback((name: string) => {
     setCounty(name);
@@ -417,7 +452,7 @@ export function useHazardModel() {
   }, []);
 
   /*
-   * Parameter controls.
+   * Legacy parameter controls.
    */
   const toggleParameter = useCallback((id: ParameterId) => {
     setSelected((previous) =>
@@ -452,65 +487,143 @@ export function useHazardModel() {
   }, []);
 
   /*
-   * Run the real Django flood analysis.
-   * Preserve the existing temporary frontend model for other hazards.
+   * Flood calculator controls.
+   * Sidebar values are percentages in the range 0–100.
+   */
+  const setFloodWeight = useCallback(
+    (key: keyof FloodWeights, value: number) => {
+      if (!Number.isFinite(value)) return;
+
+      const safeValue = Math.min(100, Math.max(0, value));
+
+      setFloodWeights((previous) => ({
+        ...previous,
+        [key]: safeValue,
+      }));
+
+      // Existing results are stale after a weight change.
+      setFloodCalculation(null);
+      setResults([]);
+      setLastRun(null);
+      setStatus("idle");
+      setError(null);
+    },
+    [],
+  );
+
+  const resetFloodWeights = useCallback(() => {
+    setFloodWeights({ ...DEFAULT_FLOOD_WEIGHTS });
+    setFloodCalculation(null);
+    setResults([]);
+    setLastRun(null);
+    setStatus("idle");
+    setError(null);
+  }, []);
+
+  /*
+   * Run the real Django flood calculation.
    */
   const run = useCallback(async () => {
-    if (!canRun) return;
+    if (status === "running") return;
+
+    if (hazard === "flood" && !floodWeightsValid) {
+      setError(
+        `Flood weights must total 100%. ` +
+          `Current total: ${floodWeightsTotal.toFixed(2)}%.`,
+      );
+      setStatus("error");
+      return;
+    }
+
+    if (hazard !== "flood" && (!county || activeCriteria.length === 0)) {
+      setError(
+        "Select a county and at least one applicable criterion before running.",
+      );
+      setStatus("error");
+      return;
+    }
 
     setStatus("running");
     setError(null);
+    setFloodCalculation(null);
+    setResults([]);
 
     if (hazard === "flood") {
       try {
-        const response = await getFloodAnalysis();
+        /*
+         * Convert percentages to fractions for Django.
+         * The API receives weights totalling 1.0, not 100.
+         */
+        const apiWeights: FloodWeights = {
+          dist_to_river: floodWeights.dist_to_river / 100,
+          rainfall: floodWeights.rainfall / 100,
+          landcover: floodWeights.landcover / 100,
+        };
+
+        const response = await getFloodAnalysis(apiWeights);
 
         if (!response.success || !response.calculation) {
           throw new Error(
-            response.details ||
-              response.error ||
-              "Flood API returned no calculation.",
+            [response.error, response.details]
+              .filter(Boolean)
+              .join(": ") ||
+              "The flood GIS backend did not return a successful calculation.",
           );
         }
 
         setFloodCalculation(response.calculation);
-        setResults([]);
         setLastRun(new Date());
         setStatus("done");
-
-        return;
       } catch (err) {
         setFloodCalculation(null);
+        setLastRun(null);
         setStatus("error");
 
         setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to connect to the flood API.",
+          getErrorMessage(
+            err,
+            "Unable to connect to the flood GIS API.",
+          ),
         );
-
-        return;
       }
+
+      return;
     }
 
-    const criteria = [...activeCriteria];
+    /*
+     * Existing temporary frontend model for non-flood hazards.
+     */
+    try {
+      const criteria = [...activeCriteria];
 
-    window.setTimeout(() => {
-      setResults(
-        runModel(county, hazard, parameters, criteria, {
+      const modelResults = runModel(
+        county,
+        hazard,
+        parameters,
+        criteria,
+        {
           subCounty: subCounty === "all" ? undefined : subCounty,
           ward: ward === "all" ? undefined : ward,
-        }),
+        },
       );
 
+      setResults(modelResults);
       setLastRun(new Date());
       setStatus("done");
-    }, 900);
+    } catch (err) {
+      setStatus("error");
+      setError(
+        getErrorMessage(err, "The hazard analysis could not be completed."),
+      );
+    }
   }, [
-    canRun,
+    status,
     hazard,
-    activeCriteria,
+    floodWeights,
+    floodWeightsValid,
+    floodWeightsTotal,
     county,
+    activeCriteria,
     parameters,
     subCounty,
     ward,
@@ -557,6 +670,13 @@ export function useHazardModel() {
     setParameter,
     resetParameters,
     clearParameters,
+
+    // Flood calculator state and controls.
+    floodWeights,
+    setFloodWeight,
+    resetFloodWeights,
+    floodWeightsTotal,
+    floodWeightsValid,
 
     status,
     results,

@@ -12,29 +12,36 @@ import type { WardResult } from "@/lib/hazard-model";
 
 type SortKey = "name" | "subCounty" | "score";
 
-/**
- * The map's colour-free counterpart. The risk ramp is a single-hue scale, so the
- * two lightest steps sit close together by design; this table is the relief
- * channel that keeps risk readable without relying on the fill colour, and it
- * doubles as the on-screen preview of what a downloaded report contains.
- */
+const FLOOD_CLASSES = [
+  { key: "veryLow", label: "Very Low" },
+  { key: "low", label: "Low" },
+  { key: "moderate", label: "Moderate" },
+  { key: "high", label: "High" },
+  { key: "veryHigh", label: "Very High" },
+] as const;
+
 export function WardTable({ results }: { results: WardResult[] }) {
   const [sort, setSort] = useState<SortKey>("score");
   const [desc, setDesc] = useState(true);
 
   const rows = useMemo(() => {
-    const dir = desc ? -1 : 1;
+    const direction = desc ? -1 : 1;
+
     return [...results].sort((a, b) => {
-      if (sort === "score") return (a.score - b.score) * dir;
-      return a[sort].localeCompare(b[sort]) * dir;
+      if (sort === "score") {
+        return (a.score - b.score) * direction;
+      }
+
+      return a[sort].localeCompare(b[sort]) * direction;
     });
   }, [results, sort, desc]);
 
   function toggle(key: SortKey) {
     if (key === sort) {
-      setDesc((d) => !d);
+      setDesc((current) => !current);
       return;
     }
+
     setSort(key);
     setDesc(key === "score");
   }
@@ -42,9 +49,11 @@ export function WardTable({ results }: { results: WardResult[] }) {
   if (results.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="font-display text-sm font-semibold tracking-tight">Ward results</h3>
+        <h3 className="font-display text-sm font-semibold tracking-tight">
+          Ward results
+        </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          The per-ward table appears here after a run, alongside the map.
+          Run the hazard calculation to display ward-level results here.
         </p>
       </div>
     );
@@ -52,15 +61,32 @@ export function WardTable({ results }: { results: WardResult[] }) {
 
   return (
     <div className="rounded-lg border border-border bg-card">
-      <div className="flex items-baseline justify-between px-4 py-3">
-        <h3 className="font-display text-sm font-semibold tracking-tight">Ward results</h3>
-        <span className="text-xs text-muted-foreground">{results.length} wards</span>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
+        <div>
+          <h3 className="font-display text-sm font-semibold tracking-tight">
+            Ward results
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Susceptibility statistics from the latest calculation
+          </p>
+        </div>
+
+        <span className="text-xs text-muted-foreground">
+          {results.length} wards
+        </span>
       </div>
-      <div className="max-h-80 overflow-y-auto border-t border-border">
+
+      <div className="max-h-[28rem] overflow-auto border-t border-border">
         <Table>
-          <TableHeader className="sticky top-0 bg-card">
+          <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow>
-              <SortHeader label="Ward" col="name" sort={sort} desc={desc} onSort={toggle} />
+              <SortHeader
+                label="Ward"
+                col="name"
+                sort={sort}
+                desc={desc}
+                onSort={toggle}
+              />
               <SortHeader
                 label="Sub-county"
                 col="subCounty"
@@ -77,26 +103,84 @@ export function WardTable({ results }: { results: WardResult[] }) {
                 className="text-right"
               />
               <TableHead>Risk class</TableHead>
+
+              {FLOOD_CLASSES.map((item) => (
+                <TableHead key={item.key} className="text-right whitespace-nowrap">
+                  {item.label} %
+                </TableHead>
+              ))}
+
+              <TableHead className="text-right whitespace-nowrap">
+                Affected area (km²)
+              </TableHead>
             </TableRow>
           </TableHeader>
+
           <TableBody>
-            {rows.map((r) => (
-              <TableRow key={r.id}>
-                <TableCell className="font-medium">{r.name}</TableCell>
-                <TableCell className="text-muted-foreground">{r.subCounty}</TableCell>
-                <TableCell className="text-right tabular-nums">{r.score}</TableCell>
-                <TableCell>
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden="true"
-                      className="size-2.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10"
-                      style={{ backgroundColor: `var(${r.risk.varName})` }}
-                    />
-                    {r.risk.label}
-                  </span>
-                </TableCell>
-              </TableRow>
-            ))}
+            {rows.map((ward) => {
+              const flood = (
+                ward as WardResult & {
+                  flood?: {
+                    veryLow?: number;
+                    low?: number;
+                    moderate?: number;
+                    high?: number;
+                    veryHigh?: number;
+                    affectedAreaKm2?: number;
+                  };
+                }
+              ).flood;
+
+              return (
+                <TableRow key={ward.id}>
+                  <TableCell className="font-medium">
+                    {ward.name}
+                  </TableCell>
+
+                  <TableCell className="text-muted-foreground">
+                    {ward.subCounty}
+                  </TableCell>
+
+                  <TableCell className="text-right tabular-nums">
+                    {ward.score}
+                  </TableCell>
+
+                  <TableCell>
+                    <span className="flex items-center gap-2 whitespace-nowrap">
+                      <span
+                        aria-hidden="true"
+                        className="size-2.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10"
+                        style={{
+                          backgroundColor: `var(${ward.risk.varName})`,
+                        }}
+                      />
+                      {ward.risk.label}
+                    </span>
+                  </TableCell>
+
+                  {FLOOD_CLASSES.map((item) => {
+                    const value = flood?.[item.key];
+
+                    return (
+                      <TableCell
+                        key={item.key}
+                        className="text-right tabular-nums"
+                      >
+                        {typeof value === "number"
+                          ? `${value.toFixed(2)}%`
+                          : "—"}
+                      </TableCell>
+                    );
+                  })}
+
+                  <TableCell className="text-right tabular-nums">
+                    {typeof flood?.affectedAreaKm2 === "number"
+                      ? flood.affectedAreaKm2.toFixed(2)
+                      : "—"}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>
@@ -116,11 +200,11 @@ function SortHeader({
   col: SortKey;
   sort: SortKey;
   desc: boolean;
-  onSort: (k: SortKey) => void;
+  onSort: (key: SortKey) => void;
   className?: string;
 }) {
   const active = sort === col;
-  // aria-sort belongs on the columnheader, not on the control inside it.
+
   return (
     <TableHead
       className={className}
@@ -129,10 +213,15 @@ function SortHeader({
       <button
         type="button"
         onClick={() => onSort(col)}
-        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+        className="inline-flex items-center gap-1 whitespace-nowrap transition-colors hover:text-foreground"
       >
         {label}
-        {active && (desc ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
+        {active &&
+          (desc ? (
+            <ArrowDown className="size-3" />
+          ) : (
+            <ArrowUp className="size-3" />
+          ))}
       </button>
     </TableHead>
   );

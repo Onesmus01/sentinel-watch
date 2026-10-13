@@ -15,13 +15,11 @@ export interface FloodWeights {
 
 export interface FloodApiResponse {
   success: boolean;
-
   hazard: {
     id: number;
     name: string;
     hazard_type: string;
   };
-
   calculation?: {
     summary: FloodSummaryItem[];
     weights: FloodWeights;
@@ -32,7 +30,6 @@ export interface FloodApiResponse {
       hotspot_map: string;
     };
   };
-
   error?: string;
   details?: string;
 }
@@ -52,13 +49,32 @@ export async function getFloodAnalysis(
     ...(weights ? { body: JSON.stringify({ weights }) } : {}),
   });
 
-  const data = (await response.json()) as FloodApiResponse;
+  const responseText = await response.text();
+
+  let data: FloodApiResponse;
+
+  try {
+    data = JSON.parse(responseText) as FloodApiResponse;
+  } catch {
+    throw new Error(
+      `Flood API returned a non-JSON response (HTTP ${response.status}). ` +
+        responseText.slice(0, 500),
+    );
+  }
 
   if (!response.ok) {
     throw new Error(
       data.details ||
         data.error ||
-        `Flood API request failed with status ${response.status}`,
+        `Flood API request failed with status ${response.status}.`,
+    );
+  }
+
+  if (!data.success || !data.calculation) {
+    throw new Error(
+      data.details ||
+        data.error ||
+        "The flood API did not return a successful calculation.",
     );
   }
 
