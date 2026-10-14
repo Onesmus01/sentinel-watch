@@ -596,7 +596,7 @@ export function ControlSidebar({ model }: { model: HazardModel }) {
           onClick={() => void model.run()} disabled={!canRun} size="lg"
           className={`run-shimmer relative h-12 w-full overflow-hidden rounded-xl font-extrabold text-white transition-all focus-visible:ring-2 focus-visible:ring-[#0a1f44] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none ${
             canRun && !running
-              ? "bg-gradient-to-r from-green-700 to-emerald-600 shadow-lg shadow-green-900/25 hover:from-green-800 hover:to-emerald-700 hover:shadow-xl active:scale-[0.99]"
+              ? "bg-gradient-to-r from-[#0a1f44] via-[#12306a] to-[#1e4a9a] shadow-lg shadow-[#0a1f44]/35 ring-1 ring-inset ring-white/10 hover:brightness-125 hover:shadow-xl active:scale-[0.99]"
               : "bg-slate-300"
           }`}
         >
