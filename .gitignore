@@ -21,3 +21,12 @@ node_modules/
 package-lock.json
 
 hazard-backend/media_flood_hotspots.tif
+
+# Generated production build
+.output/
+
+# Generated deployment files
+.wrangler/
+
+# Local source backups
+*.before-counties-fix
