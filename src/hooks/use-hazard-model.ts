@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_PARAMETERS,
   applicableParameters,
+  riskClassForClass,
   runModel,
   type HazardId,
   type ParameterId,
@@ -571,6 +572,17 @@ export function useHazardModel() {
           );
         }
 
+        const wardResults = response.calculation.wards.map((ward) => ({
+          id: ward.id,
+          name: ward.name,
+          subCounty: ward.subCounty,
+          county: ward.county,
+          score: ward.score,
+          risk: riskClassForClass(ward.riskClass),
+          flood: ward.flood,
+        })) as WardResult[];
+
+        setResults(wardResults);
         setFloodCalculation(response.calculation);
         setLastRun(new Date());
         setStatus("done");
@@ -602,8 +614,8 @@ export function useHazardModel() {
         parameters,
         criteria,
         {
-          subCounty: subCounty === "all" ? undefined : subCounty,
-          ward: ward === "all" ? undefined : ward,
+          ...(subCounty && subCounty !== "all" ? { subCounty } : {}),
+          ...(ward && ward !== "all" ? { ward } : {}),
         },
       );
 

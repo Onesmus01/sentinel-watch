@@ -13,6 +13,24 @@ export interface FloodWeights {
   landcover: number;
 }
 
+export interface FloodWardResult {
+  id: string;
+  name: string;
+  subCounty: string;
+  county: string;
+  score: number;
+  riskClass: number;
+  riskLabel: string;
+  flood: {
+    veryLow: number;
+    low: number;
+    moderate: number;
+    high: number;
+    veryHigh: number;
+    affectedAreaKm2: number;
+  };
+}
+
 export interface FloodApiResponse {
   success: boolean;
   hazard: {
@@ -22,6 +40,7 @@ export interface FloodApiResponse {
   };
   calculation?: {
     summary: FloodSummaryItem[];
+    wards: FloodWardResult[];
     weights: FloodWeights;
     outputs: {
       fhi_raster: string;

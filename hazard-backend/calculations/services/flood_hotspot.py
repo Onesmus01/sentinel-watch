@@ -765,6 +765,7 @@ def process_distance_to_river(
 # STEP 3 — RAINFALL
 # ============================================================
 
+
 def process_rainfall(
     config,
     ref_profile,
@@ -772,7 +773,8 @@ def process_rainfall(
     out_dir,
 ):
     """
-    Reproject and clip rainfall.
+    Reproject rainfall onto the reference grid and mask
+    areas outside the county without cropping the raster.
     """
 
     reproj_path = os.path.join(
@@ -781,47 +783,54 @@ def process_rainfall(
     )
 
     reproject_raster_to_match(
-        config[
-            "rainfall_path"
-        ],
+        config["rainfall_path"],
         ref_profile,
         reproj_path,
+        resampling=Resampling.bilinear,
     )
 
-    clipped_path = os.path.join(
-        out_dir,
-        "rainfall_clipped.tif",
-    )
+    with rasterio.open(reproj_path) as src:
+        rain = src.read(1).astype("float32")
+        transform = src.transform
+        nodata = src.nodata
 
-    clip_raster_to_boundary(
-        reproj_path,
-        boundary,
-        clipped_path,
-    )
+    # Keep the raster dimensions identical to the reference grid.
+    county_mask = rasterize(
+        [
+            (geom, 1)
+            for geom in boundary.geometry
+            if geom is not None and not geom.is_empty
+        ],
+        out_shape=rain.shape,
+        transform=transform,
+        fill=0,
+        dtype="uint8",
+    ).astype(bool)
 
-    with rasterio.open(
-        clipped_path
-    ) as src:
+    # Exclude invalid and out-of-county pixels.
+    invalid = ~np.isfinite(rain)
 
-        rain = src.read(1)
+    if nodata is not None:
+        invalid |= rain == nodata
+
+    rain[invalid | ~county_mask] = np.nan
 
     print_data_range(
         "rainfall",
         rain,
     )
 
-    risk = (
-        classify_rainfall_percentile(
-            rain
-        )
-    )
+    risk = classify_rainfall_percentile(rain)
+
+    # Ensure outside-county cells remain excluded.
+    risk[~county_mask] = np.nan
 
     return risk
-
 
 # ============================================================
 # STEP 4 — LAND COVER
 # ============================================================
+
 
 def process_landcover(
     config,
@@ -830,7 +839,8 @@ def process_landcover(
     out_dir,
 ):
     """
-    Reproject and clip ESA WorldCover.
+    Reproject ESA WorldCover onto the reference grid and
+    mask areas outside the county without cropping.
     """
 
     reproj_path = os.path.join(
@@ -839,47 +849,53 @@ def process_landcover(
     )
 
     reproject_raster_to_match(
-        config[
-            "landcover_path"
-        ],
+        config["landcover_path"],
         ref_profile,
         reproj_path,
         resampling=Resampling.nearest,
     )
 
-    clipped_path = os.path.join(
-        out_dir,
-        "landcover_clipped.tif",
-    )
-
-    clip_raster_to_boundary(
-        reproj_path,
-        boundary,
-        clipped_path,
-    )
-
-    with rasterio.open(
-        clipped_path
-    ) as src:
-
+    with rasterio.open(reproj_path) as src:
         lc = src.read(1)
+        transform = src.transform
+        nodata = src.nodata
 
+    # Create a county mask without changing raster dimensions.
+    county_mask = rasterize(
+        [
+            (geom, 1)
+            for geom in boundary.geometry
+            if geom is not None and not geom.is_empty
+        ],
+        out_shape=lc.shape,
+        transform=transform,
+        fill=0,
+        dtype="uint8",
+    ).astype(bool)
+
+    # Convert landcover classes to flood-risk scores.
     risk = np.full(
         lc.shape,
         np.nan,
         dtype="float32",
     )
 
-    for code, score in (
-        LANDCOVER_RISK.items()
-    ):
+    valid_pixels = county_mask.copy()
 
+    if nodata is not None:
+        valid_pixels &= lc != nodata
+
+    for code, score in LANDCOVER_RISK.items():
         risk[
-            lc == code
+            (lc == code) & valid_pixels
         ] = score
 
-    return risk
+    print_data_range(
+        "landcover risk",
+        risk,
+    )
 
+    return risk
 
 # ============================================================
 # STEP 5 — WEIGHTED OVERLAY

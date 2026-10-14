@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from calculations.services.flood_hotspot import run_flood_hotspot
+from calculations.services.ward_flood_stats import calculate_ward_flood_stats
 
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,7 @@ def flood_hotspot_calculation(request):
             weights = DEFAULT_WEIGHTS.copy()
 
         result = run_flood_hotspot(weights=weights)
+        wards = calculate_ward_flood_stats(result)
 
         return JsonResponse(
             {
@@ -139,6 +141,7 @@ def flood_hotspot_calculation(request):
                 "hazard": FLOOD_HAZARD,
                 "calculation": {
                     "summary": result.get("summary", []),
+                    "wards": wards,
                     "weights": result.get("weights", {}),
                     "outputs": result.get("outputs", {}),
                 },
