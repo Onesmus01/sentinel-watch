@@ -1,4 +1,4 @@
-
+﻿
 export type HazardId = "flood" | "drought" | "landslide";
 
 export type ParameterId =
@@ -46,7 +46,7 @@ export const PARAMETERS: ParameterDef[] = [
   {
     id: "temperature",
     label: "Temperature",
-    unit: "°C",
+    unit: "Â°C",
     min: 5,
     max: 45,
     step: 1,
@@ -163,6 +163,51 @@ export function riskClassFor(
   return RISK_CLASSES[4];
 }
 
+export interface SubCounty {
+  name: string;
+  wards: string[];
+}
+
+export interface County {
+  name: string;
+  subCounties: SubCounty[];
+}
+
+export const COUNTIES: County[] = [
+  {
+    name: "Nairobi",
+    subCounties: [
+      { name: "Westlands", wards: ["Kitisuru", "Parklands", "Karura", "Kangemi"] },
+      { name: "Embakasi East", wards: ["Upper Savannah", "Utawala", "Mihango"] },
+      { name: "Kasarani", wards: ["Mwiki", "Kahawa", "Roysambu", "Njiru"] },
+    ],
+  },
+  {
+    name: "Kisumu",
+    subCounties: [
+      { name: "Kisumu Central", wards: ["Railways", "Migosi", "Shaurimoyo", "Market Milimani"] },
+      { name: "Nyando", wards: ["Ahero", "Kabonyo", "Awasi", "East Kano"] },
+      { name: "Muhoroni", wards: ["Chemelil", "Miwani", "Ombeyi"] },
+    ],
+  },
+  {
+    name: "Baringo",
+    subCounties: [
+      { name: "Baringo North", wards: ["Barwessa", "Kabartonjo", "Saimo Soi"] },
+      { name: "Marigat", wards: ["Ilchamus", "Mochongoi", "Marigat"] },
+      { name: "Tiaty", wards: ["Ribkwo", "Silale", "Loiyamorok", "Tirioko"] },
+    ],
+  },
+  {
+    name: "Murang'a",
+    subCounties: [
+      { name: "Kangema", wards: ["Kanyenya-ini", "Muguru", "Rwathia"] },
+      { name: "Mathioya", wards: ["Gitugi", "Kiru", "Kamacharia"] },
+      { name: "Kandara", wards: ["Ng'araria", "Muruka", "Gaichanjiru", "Ithiru"] },
+    ],
+  },
+];
+
 export interface ParameterValues {
   gradient: number;
   rainfall: number;
@@ -254,3 +299,4 @@ export function runModel(
     },
   ];
 }
+
