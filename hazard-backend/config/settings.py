@@ -21,26 +21,32 @@ load_dotenv(BASE_DIR / ".env")
 
 # ============================================================
 # SECURITY
-# ============================================================
 
 SECRET_KEY = os.getenv(
     "SECRET_KEY",
-    "django-insecure-development-key",
+    "django-insecure-development-key" if os.name == "nt" else "",
 )
+
+if not SECRET_KEY:
+    raise RuntimeError(
+        "Set the SECRET_KEY environment variable before running in production."
+    )
 
 DEBUG = os.getenv(
     "DEBUG",
-    "True",
+    "True" if os.name == "nt" else "False",
 ).lower() == "true"
 
-
 ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
+    host.strip()
+    for host in os.getenv(
+        "ALLOWED_HOSTS",
+        "localhost,127.0.0.1",
+    ).split(",")
+    if host.strip()
 ]
 
 
-# ============================================================
 # APPLICATIONS
 # ============================================================
 
@@ -78,6 +84,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
 
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -123,42 +130,33 @@ ASGI_APPLICATION = "config.asgi.application"
 
 
 # ============================================================
-# DATABASE ΓÇö POSTGIS
-# ============================================================
+# DATABASE ? POSTGIS
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.contrib.gis.db.backends.postgis",
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-        "NAME": os.getenv(
-            "DB_NAME",
-            "hazard_db",
-        ),
+if DATABASE_URL:
+    import dj_database_url
 
-        "USER": os.getenv(
-            "DB_USER",
-            "postgres",
-        ),
-
-        "PASSWORD": os.getenv(
-            "DB_PASSWORD",
-            "",
-        ),
-
-        "HOST": os.getenv(
-            "DB_HOST",
-            "127.0.0.1",
-        ),
-
-        "PORT": os.getenv(
-            "DB_PORT",
-            "5432",
-        ),
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            engine="django.contrib.gis.db.backends.postgis",
+            conn_max_age=600,
+        )
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.contrib.gis.db.backends.postgis",
+            "NAME": os.getenv("DB_NAME", "hazard_db"),
+            "USER": os.getenv("DB_USER", "postgres"),
+            "PASSWORD": os.getenv("DB_PASSWORD", ""),
+            "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+            "PORT": os.getenv("DB_PORT", "5432"),
+        }
+    }
 
 
-# ============================================================
 # DJANGO REST FRAMEWORK
 # ============================================================
 
@@ -193,12 +191,27 @@ REST_FRAMEWORK = {
 
 # ============================================================
 # CORS
-# ============================================================
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = (
+    os.getenv(
+        "CORS_ALLOW_ALL_ORIGINS",
+        "true" if os.name == "nt" else "false",
+    ).lower() == "true"
+)
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
 
 
-# ============================================================
 # INTERNATIONALIZATION
 # ============================================================
 
@@ -213,14 +226,20 @@ USE_TZ = True
 
 # ============================================================
 # STATIC FILES
-# ============================================================
 
-STATIC_URL = "static/"
-
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
-# ============================================================
+
 # DEFAULT PRIMARY KEY
 # ============================================================
 
@@ -327,10 +346,13 @@ POSTGRES_BIN = os.path.join(
 #
 # ============================================================
 
-GDAL_LIBRARY_PATH = os.path.join(
-    QGIS_BIN,
-    "gdal309.dll",
-)
+# Windows uses the GDAL DLL bundled with QGIS.
+# Linux lets GeoDjango discover the installed GDAL library.
+if os.name == "nt":
+    GDAL_LIBRARY_PATH = os.path.join(
+        QGIS_BIN,
+        "gdal309.dll",
+    )
 
 
 # ============================================================
@@ -342,10 +364,13 @@ GDAL_LIBRARY_PATH = os.path.join(
 #
 # ============================================================
 
-GEOS_LIBRARY_PATH = os.path.join(
-    QGIS_BIN,
-    "geos_c.dll",
-)
+# Windows uses the GEOS DLL bundled with QGIS.
+# Linux lets GeoDjango discover the installed GEOS library.
+if os.name == "nt":
+    GEOS_LIBRARY_PATH = os.path.join(
+        QGIS_BIN,
+        "geos_c.dll",
+    )
 
 
 # ============================================================
@@ -395,13 +420,16 @@ PROJ_LIB = os.path.join(
 #
 # ============================================================
 
-os.environ["PATH"] = (
-    QGIS_BIN
-    + os.pathsep
-    + POSTGRES_BIN
-    + os.pathsep
-    + os.environ.get("PATH", "")
-)
+# Add Windows GIS and PostgreSQL binaries only on Windows.
+# Render/Linux uses its installed native GIS libraries.
+if os.name == "nt":
+    os.environ["PATH"] = (
+        QGIS_BIN
+        + os.pathsep
+        + POSTGRES_BIN
+        + os.pathsep
+        + os.environ.get("PATH", "")
+    )
 
 
 # ============================================================
@@ -439,3 +467,14 @@ os.environ["PATH"] = (
 # - Python Rasterio/pyproj PROJ
 #
 # ============================================================
+
+
+# Production security settings
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
