@@ -353,6 +353,11 @@ if os.name == "nt":
         QGIS_BIN,
         "gdal309.dll",
     )
+else:
+    GDAL_LIBRARY_PATH = os.getenv(
+        "GDAL_LIBRARY_PATH",
+        "/usr/lib/x86_64-linux-gnu/libgdal.so",
+    )
 
 
 # ============================================================
@@ -370,6 +375,11 @@ if os.name == "nt":
     GEOS_LIBRARY_PATH = os.path.join(
         QGIS_BIN,
         "geos_c.dll",
+    )
+else:
+    GEOS_LIBRARY_PATH = os.getenv(
+        "GEOS_LIBRARY_PATH",
+        "/usr/lib/x86_64-linux-gnu/libgeos_c.so",
     )
 
 
