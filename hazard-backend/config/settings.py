@@ -20,7 +20,33 @@ load_dotenv(BASE_DIR / ".env")
 
 
 # ============================================================
+# PROJ DATA CONFIGURATION — SET BEFORE GIS INITIALIZATION
+# ============================================================
+
+if os.name == "nt":
+    from pyproj import datadir as pyproj_datadir
+
+    # Use the PROJ database bundled with the active Python
+    # environment, not PostgreSQL/PostGIS or QGIS PROJ data.
+    _proj_data_dir = pyproj_datadir.get_data_dir()
+    _proj_database = os.path.join(_proj_data_dir, "proj.db")
+
+    if not os.path.isfile(_proj_database):
+        raise RuntimeError(
+            f"PROJ database not found: {_proj_database}"
+        )
+
+    # PROJ 9.1+ uses PROJ_DATA. PROJ_LIB is also set for
+    # compatibility with software that still reads that variable.
+    os.environ["PROJ_DATA"] = _proj_data_dir
+    os.environ["PROJ_LIB"] = _proj_data_dir
+
+    PROJ_LIB = _proj_data_dir
+
+
+# ============================================================
 # SECURITY
+# ============================================================
 
 SECRET_KEY = os.getenv(
     "SECRET_KEY",
@@ -45,6 +71,7 @@ ALLOWED_HOSTS = [
     ).split(",")
     if host.strip()
 ]
+
 # Allow the hostname assigned by Render.
 RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME")
 
@@ -55,6 +82,7 @@ if (
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 
+# ============================================================
 # APPLICATIONS
 # ============================================================
 
@@ -90,7 +118,6 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
-
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -138,7 +165,8 @@ ASGI_APPLICATION = "config.asgi.application"
 
 
 # ============================================================
-# DATABASE ? POSTGIS
+# DATABASE — POSTGIS
+# ============================================================
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -165,6 +193,7 @@ else:
     }
 
 
+# ============================================================
 # DJANGO REST FRAMEWORK
 # ============================================================
 
@@ -172,33 +201,29 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
-
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
         "rest_framework.parsers.FormParser",
         "rest_framework.parsers.MultiPartParser",
     ],
-
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
-
     "DEFAULT_PAGINATION_CLASS": (
         "rest_framework.pagination.PageNumberPagination"
     ),
-
     "PAGE_SIZE": 50,
 }
 
 
 # ============================================================
-# CORS
+# CORS / CSRF
+# ============================================================
 
 CORS_ALLOW_ALL_ORIGINS = (
     os.getenv(
@@ -220,20 +245,19 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 
+# ============================================================
 # INTERNATIONALIZATION
 # ============================================================
 
 LANGUAGE_CODE = "en-us"
-
 TIME_ZONE = "Africa/Nairobi"
-
 USE_I18N = True
-
 USE_TZ = True
 
 
 # ============================================================
 # STATIC FILES
+# ============================================================
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -248,6 +272,7 @@ STORAGES = {
 }
 
 
+# ============================================================
 # DEFAULT PRIMARY KEY
 # ============================================================
 
@@ -258,9 +283,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # EMAIL
 # ============================================================
 
-EMAIL_BACKEND = (
-    "django.core.mail.backends.console.EmailBackend"
-)
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 
 # ============================================================
@@ -289,8 +312,6 @@ GEOSERVER_PASSWORD = os.getenv(
 
 
 # ============================================================
-# ============================================================
-
 # GEODJANGO — CROSS-PLATFORM GIS LIBRARIES
 # ============================================================
 
@@ -301,9 +322,10 @@ GEOSERVER_PASSWORD = os.getenv(
 #   PostgreSQL 18 / PostGIS 3.6.2
 #
 # Linux / Docker:
-#   GDAL: libgdal.so
-#   GEOS: libgeos_c.so
+#   GDAL: system libraries
+#   GEOS: system libraries
 #   PROJ: system libraries and data
+
 
 # ============================================================
 # WINDOWS INSTALLATION PATHS
@@ -349,18 +371,6 @@ else:
 
 
 # ============================================================
-# PROJ
-# ============================================================
-
-if os.name == "nt":
-    PROJ_LIB = os.path.join(
-        QGIS_ROOT,
-        "share",
-        "proj",
-    )
-
-
-# ============================================================
 # GIS NATIVE LIBRARY PATH — WINDOWS ONLY
 # ============================================================
 
@@ -378,9 +388,16 @@ if os.name == "nt":
 # END OF GIS CONFIGURATION
 # ============================================================
 
-# Production security settings
+
+# ============================================================
+# PRODUCTION SECURITY
+# ============================================================
+
 if not DEBUG:
-    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_PROXY_SSL_HEADER = (
+        "HTTP_X_FORWARDED_PROTO",
+        "https",
+    )
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
