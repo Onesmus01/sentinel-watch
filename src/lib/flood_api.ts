@@ -48,13 +48,17 @@ export interface FloodApiResponse {
       diagnostic_map: string;
       hotspot_map: string;
     };
+    created_at: string;
   };
   error?: string;
   details?: string;
 }
 
-const FLOOD_API_URL =
-  "http://127.0.0.1:8000/api/calculations/flood/";
+const DJANGO_API_URL = (
+  import.meta.env.VITE_DJANGO_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
+const FLOOD_API_URL = `${DJANGO_API_URL}/api/calculations/flood/`;
 
 export async function getFloodAnalysis(
   weights?: FloodWeights,

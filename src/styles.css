@@ -186,4 +186,25 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+
+  /* Use the available screen space */
+.dashboard-layout {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Adapt to shorter screens */
+@media (max-height: 800px) {
+  .dashboard-content {
+    gap: 0.5rem;
+  }
+}
+
+/* Adapt to narrower screens */
+@media (max-width: 1024px) {
+  .dashboard-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 }
