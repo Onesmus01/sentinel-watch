@@ -1,7 +1,7 @@
 import {
   Play, Search, Loader2, RotateCcw, X, Calculator, AlertCircle, CheckCircle2,
   MapPin, ShieldAlert, Waves, SlidersHorizontal, Activity, ChevronRight,
-  Layers3, Sparkles, FileOutput, TrendingUp, Ruler,
+  Layers3, FileOutput, TrendingUp, Ruler,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -187,7 +187,7 @@ export function ControlSidebar({ model }: { model: HazardModel }) {
           <div className="min-w-0 flex-1">
             <h1 className="text-base font-extrabold tracking-tight text-white">Analysis workspace</h1>
             <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-200">
-              <Sparkles className="size-3" />Configure your hazard assessment
+              <FileOutput className="size-3" />Configure your hazard assessment
             </p>
           </div>
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
