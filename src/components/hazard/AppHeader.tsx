@@ -66,7 +66,7 @@ export function AppHeader({ county, lastRun, onOpenControls }: Props) {
           </span>
 
           <span>
-            Source: <span className="text-white">Demo dataset v1</span>
+            Source: <span className="text-white"><span className="bg-green-500 text-center font-semi justify-content rounded-full text-white px-1 py-1/8 rounded-xs">Live</span> dataset</span>
           </span>
         </div>
       </div>

@@ -207,4 +207,14 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Hide scrollbar but keep scrolling enabled */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Older Edge/IE */
+}
+
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Edge */
+}
 }
