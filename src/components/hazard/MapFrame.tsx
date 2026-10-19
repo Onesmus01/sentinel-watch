@@ -51,9 +51,18 @@ interface BoundaryCollection {
   count?: number;
 }
 
+interface WmsTileLayer extends TileLayer {
+  setParams(
+    params: Record<string, string | number | boolean>,
+    noRedraw?: boolean,
+  ): this;
+  redraw(): this;
+}
+
 const DJANGO_API_URL = (
   import.meta.env.VITE_DJANGO_API_URL || "http://127.0.0.1:8000"
 ).replace(/\/+$/, "");
+
 const API_BASE_URL = `${DJANGO_API_URL}/api`;
 
 const GEOSERVER_WMS_URL = (
@@ -61,21 +70,34 @@ const GEOSERVER_WMS_URL = (
   "http://192.168.0.40:8080/geoserver/wms"
 ).replace(/\/+$/, "");
 
-/* Override in the frontend environment if workspace/layer names differ. */
 const FLOOD_LAYER =
   import.meta.env.VITE_GEOSERVER_FLOOD_LAYER ||
+  "Hazards_Dashboard:TanaRiver_Flood_Susceptability_Map";
+
+/*
+ * Newly exposed flood hotspot layer.
+ * This is independent of the flood susceptibility layer.
+ * It is available in the layer control but is not enabled automatically.
+ */
+const FLOOD_HOTSPOT_LAYER =
+  import.meta.env.VITE_GEOSERVER_FLOOD_HOTSPOT_LAYER ||
   "TanaRiver_Floods:TanaRiver_Flood_Hotspots";
+
 const WARD_LAYER =
   import.meta.env.VITE_GEOSERVER_WARD_LAYER || "Rangelands:wards";
+
 const RAINFALL_LAYER =
   import.meta.env.VITE_GEOSERVER_RAINFALL_LAYER ||
   "Hazards_Dashboard:TanaRiver_Rainfall";
+
 const LANDCOVER_LAYER =
   import.meta.env.VITE_GEOSERVER_LANDCOVER_LAYER ||
   "Hazards_Dashboard:TanaRiver_LULC";
+
 const SLOPE_LAYER =
   import.meta.env.VITE_GEOSERVER_SLOPE_LAYER ||
   "Hazards_Dashboard:TanaRiver_Slope";
+
 const RIVER_LAYER =
   import.meta.env.VITE_GEOSERVER_RIVER_LAYER ||
   "Hazards_Dashboard:TR_Rivers";
@@ -113,8 +135,6 @@ const MAP_CSS = `
 .mapframe{--ink:#0b1f24;--teal:#0f766e;--teal-2:#14b8a6;--line:rgb(15 118 110/.16);font-feature-settings:"tnum" 1,"cv11" 1}
 .mapframe .leaflet-container{font-family:inherit;background:#cfe3e1}
 .dark .mapframe .leaflet-container{background:#0b1f24}
-
-/* Controls: one glass language for zoom + layers */
 .mapframe .leaflet-bar,.mapframe .leaflet-control-layers{
   border:1px solid rgb(255 255 255/.7)!important;border-radius:16px!important;
   background:rgb(255 255 255/.82)!important;backdrop-filter:blur(14px) saturate(1.4);
@@ -131,15 +151,12 @@ const MAP_CSS = `
 .mapframe .leaflet-control-attribution{background:rgb(255 255 255/.75)!important;font-size:9px;border-radius:10px 0 0 0;backdrop-filter:blur(6px)}
 .mapframe .leaflet-control-attribution a{color:#0f766e}
 .mapframe .leaflet-container:focus-visible{outline:2px solid #14b8a6;outline-offset:-2px}
-
 .dark .mapframe .leaflet-bar,.dark .mapframe .leaflet-control-layers{background:rgb(8 28 33/.86)!important;border-color:rgb(94 234 212/.18)!important;color:#d5f5ef}
 .dark .mapframe .leaflet-bar a{background:transparent;color:#d5f5ef;border-bottom-color:rgb(94 234 212/.14)}
 .dark .mapframe .leaflet-bar a:hover{background:rgb(20 184 166/.18);color:#99f6e4}
 .dark .mapframe .leaflet-control-layers-expanded{color:#d5f5ef}
 .dark .mapframe .leaflet-control-scale-line{background:rgb(8 28 33/.8);color:#d5f5ef;border-color:#2dd4bf}
 .dark .mapframe .leaflet-control-attribution{background:rgb(8 28 33/.75)!important;color:#94a3b8}
-
-/* Motion: only for state changes */
 @keyframes mf-sweep{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
 @keyframes mf-rise{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
 @keyframes mf-ping{0%{box-shadow:0 0 0 0 rgb(20 184 166/.55)}100%{box-shadow:0 0 0 9px rgb(20 184 166/0)}}
@@ -147,8 +164,6 @@ const MAP_CSS = `
 .mapframe .mf-rise{animation:mf-rise .28s cubic-bezier(.2,.8,.2,1) both}
 .mapframe .mf-ping{animation:mf-ping 1.6s ease-out infinite}
 @media (prefers-reduced-motion:reduce){.mapframe .mf-sweep,.mapframe .mf-rise,.mapframe .mf-ping{animation:none}}
-
-/* Small screens: keep map controls clear of the floating panels */
 @media (max-width:639px){
   .mapframe .leaflet-bar a{width:42px;height:42px;line-height:42px}
   .mapframe .leaflet-control-attribution{max-width:60vw;white-space:normal;text-align:right}
@@ -193,7 +208,8 @@ export function MapFrame({
   const coords = useRef<HTMLSpanElement>(null);
   const map = useRef<LeafletMap | null>(null);
 
-  const floodLayer = useRef<TileLayer | null>(null);
+  const floodLayer = useRef<WmsTileLayer | null>(null);
+  const floodHotspotLayer = useRef<WmsTileLayer | null>(null);
   const boundaryLayer = useRef<LeafletGeoJSON | null>(null);
   const requestId = useRef(0);
 
@@ -246,6 +262,7 @@ export function MapFrame({
   useEffect(() => {
     const onChange = () => {
       setFullscreen(document.fullscreenElement === root.current);
+
       window.setTimeout(() => {
         map.current?.invalidateSize({ pan: false });
       }, 150);
@@ -300,7 +317,7 @@ export function MapFrame({
           layers: string,
           layerOpacity: number,
           attribution: string,
-        ) =>
+        ): WmsTileLayer =>
           L.tileLayer.wms(GEOSERVER_WMS_URL, {
             layers,
             format: "image/png",
@@ -309,33 +326,44 @@ export function MapFrame({
             opacity: layerOpacity,
             tiled: true,
             attribution,
-          });
+          }) as WmsTileLayer;
 
         const flood = wms(
           FLOOD_LAYER,
           opacity / 100,
+          "Flood susceptibility · Sentinel Watch GeoServer",
+        );
+
+        const floodHotspots = wms(
+          FLOOD_HOTSPOT_LAYER,
+          opacity / 100,
           "Flood hotspots · Sentinel Watch GeoServer",
         );
+
         const wards = wms(
           WARD_LAYER,
           0.85,
           "Ward boundaries · Sentinel Watch GeoServer",
         );
+
         const rainfall = wms(
           RAINFALL_LAYER,
           0.7,
           "Rainfall · Sentinel Watch GeoServer",
         );
+
         const landcover = wms(
           LANDCOVER_LAYER,
           0.75,
           "Land cover · Sentinel Watch GeoServer",
         );
+
         const slope = wms(
           SLOPE_LAYER,
           0.7,
           "Slope · Sentinel Watch GeoServer",
         );
+
         const rivers = wms(
           RIVER_LAYER,
           0.95,
@@ -348,11 +376,16 @@ export function MapFrame({
           flood.addTo(instance);
         }
 
+        /*
+         * Hotspots are deliberately NOT added to the map here.
+         * The user can enable them from the Leaflet layer selector.
+         */
         const layersControl = L.control
           .layers(
             { "Street map": osm, Satellite: satellite },
             {
-              "Flood hotspots": flood,
+              "Flood susceptibility": flood,
+              "Flood hotspots": floodHotspots,
               Rainfall: rainfall,
               "Land cover": landcover,
               Slope: slope,
@@ -396,6 +429,7 @@ export function MapFrame({
         });
 
         floodLayer.current = flood;
+        floodHotspotLayer.current = floodHotspots;
 
         observer = new ResizeObserver(() => {
           if (!cancelled && instance && map.current === instance) {
@@ -404,6 +438,7 @@ export function MapFrame({
         });
 
         observer.observe(holder.current);
+
         window.requestAnimationFrame(() => {
           if (!cancelled && instance && map.current === instance) {
             instance.invalidateSize({ pan: false });
@@ -438,13 +473,14 @@ export function MapFrame({
 
       boundaryLayer.current = null;
       floodLayer.current = null;
+      floodHotspotLayer.current = null;
     };
 
     // Map creation is intentionally one-time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* Show the flood layer only when the flood hazard is selected. */
+  /* Show the flood susceptibility overlay only for the flood hazard. */
   useEffect(() => {
     const instance = map.current;
     const layer = floodLayer.current;
@@ -461,28 +497,40 @@ export function MapFrame({
   }, [isFlood, ready]);
 
   /*
-   * Refresh WMS tiles when the calculation completes.
-   * This refreshes the published layer; it does not publish new rasters.
+   * Refresh both published WMS layers when flood calculation completes.
+   * This refreshes their map tiles only; it does not rerun calculations
+   * or publish the local raster files to GeoServer.
+   *
+   * The hotspot layer remains off unless the user enabled it.
    */
   useEffect(() => {
     const instance = map.current;
-    const layer = floodLayer.current;
+    const flood = floodLayer.current;
+    const hotspots = floodHotspotLayer.current;
 
-    if (!ready || !instance || !layer || !isFlood || status !== "done") {
+    if (!ready || !instance || !isFlood || status !== "done") {
       return;
     }
 
-    if (!instance.hasLayer(layer)) {
-      layer.addTo(instance);
+    if (flood) {
+      if (!instance.hasLayer(flood)) {
+        flood.addTo(instance);
+      }
+
+      flood.setParams({ _refresh: String(Date.now()) }, false);
+      flood.redraw();
     }
 
-    layer.setParams({ _refresh: String(Date.now()) }, false);
-    layer.redraw();
+    if (hotspots) {
+      hotspots.setParams({ _refresh: String(Date.now()) }, false);
+      hotspots.redraw();
+    }
   }, [status, isFlood, ready]);
 
-  /* Update flood overlay opacity. */
+  /* Update opacity for both flood overlays. */
   useEffect(() => {
     floodLayer.current?.setOpacity(opacity / 100);
+    floodHotspotLayer.current?.setOpacity(opacity / 100);
   }, [opacity, ready]);
 
   /* Completion notification. */
@@ -494,6 +542,7 @@ export function MapFrame({
 
     setToast(true);
     const timer = window.setTimeout(() => setToast(false), 6000);
+
     return () => window.clearTimeout(timer);
   }, [status]);
 
@@ -518,6 +567,7 @@ export function MapFrame({
           if (instance.hasLayer(boundaryLayer.current)) {
             instance.removeLayer(boundaryLayer.current);
           }
+
           boundaryLayer.current = null;
         }
 
@@ -537,7 +587,10 @@ export function MapFrame({
         level = "subcounty";
       }
 
-      const params = new URLSearchParams({ level, county: selectedCounty });
+      const params = new URLSearchParams({
+        level,
+        county: selectedCounty,
+      });
 
       if (level === "subcounty" || level === "ward") {
         params.set("subcounty", selectedSubCounty);
@@ -631,7 +684,10 @@ export function MapFrame({
               : `${selectedCounty} County`,
         );
       } catch (error) {
-        if (controller.signal.aborted || currentRequest !== requestId.current) {
+        if (
+          controller.signal.aborted ||
+          currentRequest !== requestId.current
+        ) {
           return;
         }
 
@@ -643,6 +699,7 @@ export function MapFrame({
               padding: [36, 36],
               duration: 0.8,
             });
+
             setFramed(`${selectedCounty} County`);
             return;
           }
@@ -657,6 +714,7 @@ export function MapFrame({
               ],
               { padding: [36, 36], duration: 0.8 },
             );
+
             setFramed(`${selectedCounty} County`);
             return;
           }
@@ -679,6 +737,7 @@ export function MapFrame({
   }, [county, subCounty, ward, ready]);
 
   const pill = STATUS_PILLS[status];
+
   const pillIcon =
     status === "running" ? (
       <Loader2 className="size-3.5 animate-spin" />
@@ -707,6 +766,7 @@ export function MapFrame({
       <header className="relative z-[400] flex shrink-0 items-center gap-2.5 border-b border-teal-900/10 bg-gradient-to-r from-white via-white to-teal-50 px-3 py-2.5 dark:border-teal-300/10 dark:from-[#081c21] dark:via-[#081c21] dark:to-teal-950/50 sm:gap-3.5 sm:px-5 sm:py-3.5">
         <div className="relative grid size-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-teal-500 via-teal-700 to-emerald-800 text-white shadow-lg shadow-teal-900/30 ring-1 ring-white/30 sm:size-11">
           <MapIcon className="size-5" />
+
           {status === "running" && (
             <span className="mf-ping absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-teal-300 ring-2 ring-white dark:ring-[#081c21]" />
           )}
@@ -771,7 +831,6 @@ export function MapFrame({
           className="absolute inset-0 size-full"
         />
 
-        {/* Soft inner vignette gives the map depth under the glass UI */}
         <div className="pointer-events-none absolute inset-0 z-[350] shadow-[inset_0_0_60px_rgb(11_31_36/.14)]" />
 
         {!ready && !failed && (
@@ -824,6 +883,7 @@ export function MapFrame({
               <p className="font-bold text-slate-800 dark:text-slate-100">
                 Boundary could not be loaded
               </p>
+
               <p className="mt-0.5 break-words text-xs leading-5 text-slate-500 dark:text-slate-400">
                 {boundaryError}
               </p>
@@ -842,6 +902,7 @@ export function MapFrame({
                 <p className="text-sm font-bold text-slate-900 dark:text-white">
                   Calculating flood susceptibility
                 </p>
+
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   Processing environmental indicators and risk classes…
                 </p>
@@ -865,7 +926,9 @@ export function MapFrame({
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-emerald-500 text-white">
                 <CheckCircle2 className="size-4" />
               </span>
+
               <span className="truncate">Flood analysis complete</span>
+
               <span className="hidden font-medium text-emerald-700/70 dark:text-emerald-300/70 sm:inline">
                 overlay refreshed
               </span>
@@ -884,9 +947,11 @@ export function MapFrame({
               className="flex min-h-11 w-full items-center gap-2.5 px-3.5 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500"
             >
               <Layers3 className="size-4 text-teal-700 dark:text-teal-400" />
+
               <span className="flex-1 text-xs font-extrabold text-slate-900 dark:text-white">
                 Risk levels
               </span>
+
               <ChevronDown
                 className={`size-4 text-slate-400 transition-transform duration-200 ${legendOpen ? "" : "-rotate-90"}`}
               />
@@ -897,9 +962,10 @@ export function MapFrame({
                 <div
                   className="h-2.5 rounded-full ring-1 ring-black/10"
                   style={{
-                    background: `linear-gradient(90deg, ${RISK_CLASSES.map((r) => r.color).join(", ")})`,
+                    background: `linear-gradient(90deg, ${RISK_CLASSES.map((risk) => risk.color).join(", ")})`,
                   }}
                 />
+
                 <div className="mt-1 flex justify-between text-[10px] font-semibold text-slate-500 dark:text-slate-400">
                   <span>Lower</span>
                   <span>Higher</span>
@@ -943,7 +1009,8 @@ export function MapFrame({
 
                 <p className="mt-2.5 text-[10px] leading-4 text-slate-400">
                   Legend colors must match the published GeoServer raster
-                  style.
+                  style. Hotspot visibility depends on its published layer
+                  style and data.
                 </p>
               </div>
             )}
@@ -956,6 +1023,7 @@ export function MapFrame({
         <div className="flex min-w-0 items-center gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-teal-900/5 px-2 py-1 dark:bg-white/5">
             <Crosshair className="size-3.5 text-teal-600 dark:text-teal-400" />
+
             <span ref={coords} className="tabular-nums">
               Hover over the map
             </span>
