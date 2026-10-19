@@ -1,6 +1,5 @@
-
 import { Link } from "@tanstack/react-router";
-import { Activity, FileDown, LayoutDashboard, Menu } from "lucide-react";
+import { FileDown, LayoutDashboard, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Props {
@@ -9,11 +8,17 @@ interface Props {
   onOpenControls?: () => void;
 }
 
-export function AppHeader({ county, lastRun, onOpenControls }: Props) {
+const HEADER_BG = "#0a1f44";
+
+export function AppHeader({
+  county,
+  lastRun,
+  onOpenControls,
+}: Props) {
   return (
     <header
       className="sticky top-0 z-30 border-b border-white/10 text-white shadow-md"
-      style={{ backgroundColor: "#0a1f44" }}
+      style={{ backgroundColor: HEADER_BG }}
     >
       <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
         {onOpenControls && (
@@ -29,14 +34,26 @@ export function AppHeader({ county, lastRun, onOpenControls }: Props) {
         )}
 
         <div className="flex items-center gap-3">
-          <span className="grid size-9 place-items-center rounded-md border border-white/15 bg-white/10 text-white">
-            <Activity className="size-5" />
-          </span>
+          {/* Logo blends with the navy header */}
+          <div
+            className="flex size-20 shrink-0 items-center justify-center"
+            style={{ backgroundColor: HEADER_BG }}
+          >
+            <img
+              src="/image.png"
+              alt="Kenya Space Agency logo"
+              className="size-20 rounded-md brightness-80 object-contain"
+              style={{
+                mixBlendMode: "multipl",
+              }}
+            />
+          </div>
 
           <div className="leading-tight">
             <h1 className="font-display text-base font-semibold tracking-tight text-white sm:text-lg">
               Sentinel Hazard Monitor
             </h1>
+
             <p className="text-xs text-white/65">
               Regional early-warning console · {county} County
             </p>
@@ -49,6 +66,7 @@ export function AppHeader({ county, lastRun, onOpenControls }: Props) {
             icon={<LayoutDashboard className="size-4" />}
             label="Dashboard"
           />
+
           <HeaderLink
             to="/reports"
             icon={<FileDown className="size-4" />}
@@ -60,7 +78,9 @@ export function AppHeader({ county, lastRun, onOpenControls }: Props) {
           <span>
             Last run:{" "}
             <span className="text-white">
-              {lastRun ? lastRun.toLocaleTimeString() : "—"}
+              {lastRun
+                ? lastRun.toLocaleTimeString()
+                : "—"}
             </span>
           </span>
 
